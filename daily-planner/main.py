@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
 from config import config
@@ -25,6 +26,18 @@ from notifiers import send_email, send_whatsapp
 log = logging.getLogger("daily-planner")
 
 
+def _read_profile(path: str) -> str:
+    """Personal 'about me' context, if present, to tailor the briefing."""
+    if not path or not os.path.exists(path):
+        return ""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("profile unreadable: %s", exc)
+        return ""
+
+
 def gather_context() -> list[str]:
     """Collect every source; each returns "" when unconfigured/unavailable."""
     log.info("gathering context…")
@@ -32,7 +45,7 @@ def gather_context() -> list[str]:
         gather_weather(config.city, config.timezone),
         gather_calendar(config.timezone),
         gather_urbantrends(config.urbantrends_api_url, config.urbantrends_api_token),
-        gather_tasks(config.tasks_file),
+        gather_tasks(config.tasks_file, config.tasks_db),
         gather_news(config.news_feeds, config.news_max_items),
     ]
     present = [b for b in blocks if b.strip()]
@@ -63,6 +76,7 @@ def main() -> int:
         model=config.claude_model,
         user_name=config.user_name,
         context_blocks=context,
+        profile=_read_profile(config.profile_file),
     )
 
     print("\n" + "=" * 70)
@@ -80,10 +94,8 @@ def main() -> int:
     if config.email_enabled:
         try:
             send_email(
-                host=config.smtp_host,
-                port=config.smtp_port,
-                user=config.smtp_user,
-                password=config.smtp_password,
+                api_key=config.resend_api,
+                sender=config.email_from,
                 to=config.email_to,
                 subject=plan.subject,
                 body_markdown=plan.email_body,

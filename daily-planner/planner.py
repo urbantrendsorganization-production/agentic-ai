@@ -36,7 +36,8 @@ and you protect deep-focus time. You prioritise ruthlessly: surface what truly m
 today, fold in fixed calendar commitments, and don't pad. Tone is warm but not saccharine."""
 
 
-def build_plan(api_key: str, model: str, user_name: str, context_blocks: list[str]) -> DailyPlan:
+def build_plan(api_key: str, model: str, user_name: str, context_blocks: list[str],
+               profile: str = "") -> DailyPlan:
     client = anthropic.Anthropic(api_key=api_key)
     today = dt.datetime.now().strftime("%A, %d %B %Y")
     context = "\n\n".join(b for b in context_blocks if b.strip())
@@ -52,11 +53,22 @@ Produce a plan that turns the open work and calendar into a realistic, time-bloc
 day. Put the highest-leverage UrbanTrends work in protected morning focus blocks where
 possible, schedule around any fixed calendar events, and keep the whole thing achievable."""
 
+    system = SYSTEM_PROMPT
+    if profile.strip():
+        system += (
+            "\n\nHere is background on the person you're briefing. Use it to tailor "
+            "priorities, tone, focus times, and what you surface — but don't recite "
+            "it back to them:\n" + profile.strip()
+        )
+
     response = client.messages.parse(
         model=model,
         max_tokens=16000,
         thinking={"type": "adaptive"},
-        system=SYSTEM_PROMPT,
+        # "low" effort keeps thinking/token spend down for this once-a-day
+        # briefing. Bump to "medium" if prioritisation feels shallow.
+        output_config={"effort": "low"},
+        system=system,
         messages=[{"role": "user", "content": user_prompt}],
         output_format=DailyPlan,
     )

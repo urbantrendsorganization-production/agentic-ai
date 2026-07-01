@@ -1,6 +1,7 @@
 """Central configuration, loaded from environment (.env supported)."""
 from __future__ import annotations
 
+import base64
 import os
 from dataclasses import dataclass, field
 
@@ -13,6 +14,20 @@ def _split(value: str | None) -> list[str]:
     return [v.strip() for v in (value or "").split(",") if v.strip()]
 
 
+def _password_hash() -> str:
+    """Werkzeug hashes contain '$', which Docker Compose interpolates in
+    env_file values — so we store the hash base64-encoded and decode here.
+    Falls back to a plain APP_PASSWORD_HASH for values without '$'.
+    """
+    b64 = os.getenv("APP_PASSWORD_HASH_B64", "")
+    if b64:
+        try:
+            return base64.b64decode(b64).decode()
+        except Exception:
+            return ""
+    return os.getenv("APP_PASSWORD_HASH", "")
+
+
 @dataclass
 class Config:
     # Identity / locale
@@ -22,13 +37,11 @@ class Config:
 
     # Claude
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
-    claude_model: str = os.getenv("CLAUDE_MODEL", "claude-opus-4-8")
+    claude_model: str = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 
-    # Email
-    smtp_host: str = os.getenv("SMTP_HOST", "")
-    smtp_port: int = int(os.getenv("SMTP_PORT", "465"))
-    smtp_user: str = os.getenv("SMTP_USER", "")
-    smtp_password: str = os.getenv("SMTP_PASSWORD", "")
+    # Email (Resend HTTP API)
+    resend_api: str = os.getenv("RESEND_API", "")
+    email_from: str = os.getenv("EMAIL_FROM", "onboarding@resend.dev")
     email_to: str = os.getenv("EMAIL_TO", "")
 
     # WhatsApp (CallMeBot)
@@ -41,6 +54,16 @@ class Config:
 
     # Local tasks
     tasks_file: str = os.getenv("TASKS_FILE", "tasks.md")
+    tasks_db: str = os.getenv("TASKS_DB", "tasks.db")
+
+    # Personal profile ("about me") to tailor the briefing
+    profile_file: str = os.getenv("PROFILE_FILE", "profile.md")
+
+    # Web UI auth
+    secret_key: str = os.getenv("SECRET_KEY", "")
+    app_user: str = os.getenv("APP_USER", "edwin")
+    app_password_hash: str = field(default_factory=_password_hash)
+    cookie_secure: bool = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
     # News
     news_feeds: list[str] = field(
@@ -57,7 +80,7 @@ class Config:
 
     @property
     def email_enabled(self) -> bool:
-        return all([self.smtp_host, self.smtp_user, self.smtp_password, self.email_to])
+        return all([self.resend_api, self.email_from, self.email_to])
 
     @property
     def whatsapp_enabled(self) -> bool:

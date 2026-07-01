@@ -1,0 +1,11 @@
+.env
+google_credentials.json
+google_token.json
+tasks.md
+__pycache__/
+*.pyc
+.venv/
+venv/
+tasks.db
+profile.md
+data/

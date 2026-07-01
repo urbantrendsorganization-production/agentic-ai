@@ -1,0 +1,15 @@
+# Never bake secrets, local state, or the host venv into the image
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.db
+data/
+profile.md
+google_credentials.json
+google_token.json
+planner.log
+.git/
+.gitignore
+tasks.md

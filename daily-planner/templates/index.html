@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Daily Planner — Tasks</title>
+  <style>
+    :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --text:#e6e8ec;
+            --muted:#9aa3b2; --high:#e5534b; --normal:#4a90d9; --low:#6b7280;
+            --accent:#3fb950; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text);
+           font:15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    .wrap { max-width:720px; margin:0 auto; padding:32px 20px 64px; }
+    h1 { font-size:22px; margin:0 0 4px; }
+    .sub { color:var(--muted); margin:0 0 24px; }
+    form.add { background:var(--card); border:1px solid var(--line);
+               border-radius:12px; padding:16px; display:grid; gap:10px;
+               grid-template-columns:1fr auto auto auto; align-items:center; }
+    form.add input[type=text], form.add select {
+      background:#0f1115; color:var(--text); border:1px solid var(--line);
+      border-radius:8px; padding:9px 11px; font-size:14px; }
+    form.add input[name=title] { grid-column:1 / 2; }
+    button { cursor:pointer; border:none; border-radius:8px; padding:9px 14px;
+             font-size:14px; background:var(--accent); color:#04210d; font-weight:600; }
+    button.ghost { background:transparent; color:var(--muted);
+                   border:1px solid var(--line); font-weight:400; padding:5px 10px; }
+    h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em;
+         color:var(--muted); margin:28px 0 10px; }
+    ul { list-style:none; margin:0; padding:0; display:grid; gap:8px; }
+    li { background:var(--card); border:1px solid var(--line); border-radius:10px;
+         padding:11px 14px; display:flex; align-items:center; gap:12px; }
+    li.done .title { text-decoration:line-through; color:var(--muted); }
+    .dot { width:8px; height:8px; border-radius:50%; flex:none; }
+    .dot.high{background:var(--high)} .dot.normal{background:var(--normal)} .dot.low{background:var(--low)}
+    .title { flex:1; }
+    .due { color:var(--muted); font-size:13px; }
+    .actions { display:flex; gap:6px; }
+    .empty { color:var(--muted); font-style:italic; padding:6px 2px; }
+    .actions form { display:inline; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div style="display:flex; justify-content:space-between; align-items:baseline;">
+      <h1>Tasks</h1>
+      {% if user %}<a href="{{ url_for('logout') }}" style="color:var(--muted); font-size:13px; text-decoration:none;">{{ user }} · sign out</a>{% endif %}
+    </div>
+    <p class="sub">These feed your 6&nbsp;AM briefing. Add what matters; the planner prioritises and time-blocks them.</p>
+
+    <form class="add" method="post" action="{{ url_for('add') }}">
+      <input type="text" name="title" placeholder="Add a task…" required autofocus>
+      <select name="priority">
+        {% for p in priorities %}<option value="{{ p }}" {% if p=='normal' %}selected{% endif %}>{{ p }}</option>{% endfor %}
+      </select>
+      <input type="text" name="due" placeholder="due (optional)" size="12">
+      <button type="submit">Add</button>
+    </form>
+
+    <h2>Open</h2>
+    <ul>
+      {% for t in open_tasks %}
+      <li>
+        <span class="dot {{ t.priority }}" title="{{ t.priority }} priority"></span>
+        <span class="title">{{ t.title }}</span>
+        {% if t.due %}<span class="due">{{ t.due }}</span>{% endif %}
+        <span class="actions">
+          <form method="post" action="{{ url_for('status', task_id=t.id) }}"><input type="hidden" name="status" value="done"><button class="ghost" title="Mark done">✓</button></form>
+          <form method="post" action="{{ url_for('status', task_id=t.id) }}"><input type="hidden" name="status" value="waiting"><button class="ghost" title="Move to waiting">⏸</button></form>
+          <form method="post" action="{{ url_for('delete', task_id=t.id) }}"><button class="ghost" title="Delete">✕</button></form>
+        </span>
+      </li>
+      {% else %}<li class="empty">Nothing open. Nice.</li>{% endfor %}
+    </ul>
+
+    {% if waiting %}
+    <h2>Waiting on</h2>
+    <ul>
+      {% for t in waiting %}
+      <li>
+        <span class="dot {{ t.priority }}"></span>
+        <span class="title">{{ t.title }}</span>
+        {% if t.due %}<span class="due">{{ t.due }}</span>{% endif %}
+        <span class="actions">
+          <form method="post" action="{{ url_for('status', task_id=t.id) }}"><input type="hidden" name="status" value="open"><button class="ghost" title="Move to open">▶</button></form>
+          <form method="post" action="{{ url_for('delete', task_id=t.id) }}"><button class="ghost" title="Delete">✕</button></form>
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if done %}
+    <h2>Done</h2>
+    <ul>
+      {% for t in done %}
+      <li class="done">
+        <span class="dot {{ t.priority }}"></span>
+        <span class="title">{{ t.title }}</span>
+        <span class="actions">
+          <form method="post" action="{{ url_for('status', task_id=t.id) }}"><input type="hidden" name="status" value="open"><button class="ghost" title="Reopen">↺</button></form>
+          <form method="post" action="{{ url_for('delete', task_id=t.id) }}"><button class="ghost" title="Delete">✕</button></form>
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</body>
+</html>

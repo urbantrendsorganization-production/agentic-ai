@@ -1,0 +1,33 @@
+name: daily-planner
+
+# Shared config for both services (same image, same env, same data volume).
+x-planner: &planner
+  build: .
+  image: daily-planner:latest
+  env_file: .env
+  environment: &planner-env
+    TZ: Africa/Nairobi
+    TASKS_DB: /data/tasks.db
+    PROFILE_FILE: /data/profile.md
+    COOKIE_SECURE: "true"          # served over HTTPS via the reverse proxy
+  volumes:
+    - ./data:/data                 # tasks.db + profile.md live here (host-editable)
+  restart: unless-stopped
+
+services:
+  # Always-on task UI. Bound to localhost like your other services; put the
+  # reverse proxy (planner.urbantrends.dev) in front of 127.0.0.1:5000.
+  planner-ui:
+    <<: *planner
+    container_name: daily-planner-ui
+    ports:
+      - "127.0.0.1:5000:5000"
+
+  # Runs the briefing once a day at RUN_AT (replaces the systemd timer).
+  planner-scheduler:
+    <<: *planner
+    container_name: daily-planner-scheduler
+    command: ["python", "scheduler.py"]
+    environment:
+      <<: *planner-env
+      RUN_AT: "06:00"

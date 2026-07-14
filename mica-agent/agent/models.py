@@ -1,0 +1,128 @@
+"""Data models for the agent service.
+
+`AgentEvent` is the heart of the audit story: an append-only log from which any
+session can be fully reconstructed (proposal §6, success metric §10). Nothing
+here is ever updated or deleted in normal operation — new rows only.
+"""
+from __future__ import annotations
+
+import uuid
+
+from django.db import models
+
+
+class Session(models.Model):
+    """One conversation between a visitor and the agent.
+
+    Holds only lightweight state; the authoritative history is the AgentEvent
+    log. `customer_ref` is set once a login tool verifies the visitor (P2).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    customer_ref = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"Session {self.id}"
+
+
+class Message(models.Model):
+    """A single turn in the conversation (what the user and agent said).
+
+    Tool calls and internal loop steps live in AgentEvent, not here; this table
+    is just the human-readable transcript the widget renders.
+    """
+
+    ROLE_USER = "user"
+    ROLE_AGENT = "agent"
+    ROLE_CHOICES = [(ROLE_USER, "User"), (ROLE_AGENT, "Agent")]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="messages")
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES)
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.role}: {self.text[:40]}"
+
+
+class LoginChallenge(models.Model):
+    """A pending OTP login for a session (proposal §5 — customer login).
+
+    The code is stored hashed, never in clear. A challenge is single-use, expires
+    after a short window, and caps verification attempts. On success the loop
+    binds the verified identity onto Session.customer_ref.
+    """
+
+    CHANNEL_EMAIL = "email"
+    CHANNEL_PHONE = "phone"
+    CHANNEL_CHOICES = [(CHANNEL_EMAIL, "Email"), (CHANNEL_PHONE, "Phone")]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="challenges")
+    channel = models.CharField(max_length=16, choices=CHANNEL_CHOICES)
+    destination = models.CharField(max_length=255, help_text="Email address or phone number")
+    code_hash = models.CharField(max_length=255)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    max_attempts = models.PositiveSmallIntegerField(default=5)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def is_active(self, now=None) -> bool:
+        from django.utils import timezone
+
+        now = now or timezone.now()
+        return (
+            self.consumed_at is None
+            and self.attempts < self.max_attempts
+            and now < self.expires_at
+        )
+
+    def __str__(self) -> str:
+        return f"Challenge {self.channel}:{self.destination} for {self.session_id}"
+
+
+class AgentEvent(models.Model):
+    """Append-only record of everything the agent did on a turn.
+
+    Each loop step (act / verify / respond / error) writes one row. `payload` is
+    free-form JSON: the intent, tool name, tool args, tool result, verify
+    outcome, etc. Ordering by (session, seq) replays the exact sequence.
+    """
+
+    STEP_RECEIVE = "receive"
+    STEP_ACT = "act"
+    STEP_VERIFY = "verify"
+    STEP_RESPOND = "respond"
+    STEP_ERROR = "error"
+    STEP_CHOICES = [
+        (STEP_RECEIVE, "Receive"),
+        (STEP_ACT, "Act"),
+        (STEP_VERIFY, "Verify"),
+        (STEP_RESPOND, "Respond"),
+        (STEP_ERROR, "Error"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="events")
+    seq = models.PositiveIntegerField(help_text="Monotonic order of the event within its session")
+    step = models.CharField(max_length=16, choices=STEP_CHOICES)
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["session", "seq"]
+        constraints = [
+            models.UniqueConstraint(fields=["session", "seq"], name="uniq_event_seq_per_session"),
+        ]
+
+    def __str__(self) -> str:
+        return f"[{self.seq}] {self.step} @ {self.session_id}"

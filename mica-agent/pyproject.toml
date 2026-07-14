@@ -1,0 +1,15 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Pyflakes (real bugs), pycodestyle errors, and isort. Style-only noise is kept
+# out so the gate stays meaningful. Matches the daily-planner convention.
+select = ["E", "F", "I"]
+# The agent loop deliberately catches broad exceptions to degrade gracefully.
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+testpaths = ["tests"]
+addopts = "-q"

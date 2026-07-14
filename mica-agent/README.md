@@ -23,12 +23,25 @@ Every user message runs a strict four-step loop (`agent/loop.py`):
 The `AgentEvent` table is **append-only**: any session is fully reconstructable
 from the log alone.
 
-## Status — P2 (login + navigation) ✅
+## Status — P3 (ordering + dynamic forms) ✅
 
 - **P1** — loop skeleton working end-to-end with the `echo` tool.
 - **P2** — OTP login (`request_login_code` / `verify_login_code`, pluggable
-  sender) and deep-link `navigate` off a read-only site map. Next: P3 (ordering
-  + dynamic forms). Remaining capabilities land on the same `Tool` contract.
+  sender) and deep-link `navigate` off a read-only site map.
+- **P3** — full order flow: conversation → dynamic form → **deterministic
+  rules-engine quote** → pending order. Next: P4 (support KB + tickets).
+  Remaining capabilities land on the same `Tool` contract.
+
+### Ordering (deterministic money)
+
+`start_order` names a service from `agent/catalog.py` and pops that service's
+dynamic form. The widget submits it to `POST /sessions/<id>/order/form/`, which
+validates server-side (`agent/forms.py`) and prices it with the pure rules
+engine (`agent/pricing.py`) — **the model never sets a price**. The quote is
+stored on an `OrderDraft`; `create_order` is gated on a quoted draft
+(confirmation gate) and copies the server-computed amount into a `pending`
+`Order`. Turns return an `action` field so the widget knows to show a form,
+navigate, or render a quote/confirmation.
 
 ### OTP login
 

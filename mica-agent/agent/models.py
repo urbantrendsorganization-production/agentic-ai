@@ -90,6 +90,67 @@ class LoginChallenge(models.Model):
         return f"Challenge {self.channel}:{self.destination} for {self.session_id}"
 
 
+class OrderDraft(models.Model):
+    """In-progress order for a session (proposal §5 — the ordering flow).
+
+    Carries the conversation from intent → requirements (form) → server-computed
+    quote → confirmation. The `quote` is written only by the pricing engine
+    (deterministic money, §8); the model never sets it. At most one non-placed
+    draft is active per session.
+    """
+
+    STATUS_GATHERING = "gathering"  # form shown, awaiting submission
+    STATUS_QUOTED = "quoted"        # quote computed, awaiting confirmation
+    STATUS_PLACED = "placed"        # order created from this draft
+    STATUS_CHOICES = [
+        (STATUS_GATHERING, "Gathering"),
+        (STATUS_QUOTED, "Quoted"),
+        (STATUS_PLACED, "Placed"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="order_drafts")
+    service = models.CharField(max_length=64)
+    params = models.JSONField(default=dict, blank=True)
+    quote = models.JSONField(null=True, blank=True)  # {currency, amount, breakdown}
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_GATHERING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Draft {self.service} ({self.status}) for {self.session_id}"
+
+
+class Order(models.Model):
+    """A placed order, always created in `pending` (proposal §3 non-goals: no
+    payment execution in v1). Amount/currency/breakdown are copied from the
+    draft's server-computed quote, never from model output.
+    """
+
+    STATUS_PENDING = "pending"
+    STATUS_CHOICES = [(STATUS_PENDING, "Pending")]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="orders")
+    customer_ref = models.CharField(max_length=255, blank=True, default="")
+    service = models.CharField(max_length=64)
+    params = models.JSONField(default=dict)
+    currency = models.CharField(max_length=8, default="KES")
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    breakdown = models.JSONField(default=list)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Order {self.service} {self.currency} {self.amount} ({self.status})"
+
+
 class AgentEvent(models.Model):
     """Append-only record of everything the agent did on a turn.
 

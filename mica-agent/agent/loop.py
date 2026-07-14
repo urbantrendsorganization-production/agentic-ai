@@ -22,7 +22,9 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Max
 
-from .models import AgentEvent, Message, Session
+from . import pricing
+from .forms import FormError, validate_submission
+from .models import AgentEvent, Message, OrderDraft, Session
 from .planner import get_planner
 from .tools import registry
 
@@ -34,6 +36,9 @@ class TurnResult:
     reply: str
     escalated: bool
     events: int
+    # A client-side action the widget must execute (e.g. show a form, navigate),
+    # lifted from the verified tool's result. None for plain replies.
+    action: dict | None = None
 
 
 class _EventWriter:
@@ -74,6 +79,7 @@ def handle_message(session: Session, user_text: str) -> TurnResult:
 
     reply = ""
     escalated = False
+    action: dict | None = None
 
     # act + verify, with one retry before escalation (proposal §4/§8).
     for attempt in range(1, settings.AGENT_MAX_STEPS + 1):
@@ -122,6 +128,11 @@ def handle_message(session: Session, user_text: str) -> TurnResult:
         )
         if verified:
             reply = planner.compose_reply(tool_summary=result.summary, history=history)
+            # Surface the verified tool's structured result to the widget. Turns
+            # that carry a client-side step set data["action"] (show_form,
+            # navigate); others (e.g. order created) carry their outcome.
+            if isinstance(result.data, dict) and result.data:
+                action = result.data
             break
         # else: loop and retry / try again until AGENT_MAX_STEPS
     else:
@@ -136,4 +147,51 @@ def handle_message(session: Session, user_text: str) -> TurnResult:
     Message.objects.create(session=session, role=Message.ROLE_AGENT, text=reply)
     events.log(AgentEvent.STEP_RESPOND, text=reply, escalated=escalated)
 
-    return TurnResult(reply=reply, escalated=escalated, events=events.count)
+    return TurnResult(reply=reply, escalated=escalated, events=events.count, action=action)
+
+
+@transaction.atomic
+def submit_order_form(session: Session, raw_form: dict) -> TurnResult:
+    """Deterministic form-submission turn (proposal §5 dynamic forms, §8 money).
+
+    Not routed through the planner: a structured submission needs validation and
+    a rules-engine quote, not an LLM. Still fully logged as a turn so the audit
+    trail is unbroken. Raises FormError (→ 400) on invalid input.
+    """
+    draft = (
+        session.order_drafts.filter(status=OrderDraft.STATUS_GATHERING)
+        .order_by("-created_at")
+        .first()
+    )
+    if draft is None:
+        raise FormError({"form": "no order in progress — start an order first"})
+
+    # Validate before writing anything; invalid submissions never touch the log.
+    params = validate_submission(draft.service, raw_form)
+    quote = pricing.quote(draft.service, params)
+
+    events = _EventWriter(session)
+    events.log(AgentEvent.STEP_RECEIVE, kind="form_submission", service=draft.service, raw=raw_form)
+    events.log(AgentEvent.STEP_ACT, decision="quote", service=draft.service, params=params)
+
+    draft.params = params
+    draft.quote = quote.as_dict()
+    draft.status = OrderDraft.STATUS_QUOTED
+    draft.save(update_fields=["params", "quote", "status", "updated_at"])
+    events.log(AgentEvent.STEP_VERIFY, ok=True, quote=quote.as_dict())
+
+    reply = (
+        "Here's your quote:\n"
+        f"{quote.summary()}\n\n"
+        "Reply 'confirm' to place the order (it'll be pending with the team), "
+        "or tell me what to adjust."
+    )
+    Message.objects.create(session=session, role=Message.ROLE_AGENT, text=reply)
+    events.log(AgentEvent.STEP_RESPOND, text=reply)
+
+    return TurnResult(
+        reply=reply,
+        escalated=False,
+        events=events.count,
+        action={"action": "quote", "quote": quote.as_dict(), "draft_status": draft.status},
+    )

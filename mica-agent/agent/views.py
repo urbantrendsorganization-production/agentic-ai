@@ -9,7 +9,8 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .loop import handle_message
+from .forms import FormError
+from .loop import handle_message, submit_order_form
 from .models import Session
 from .serializers import MessageInSerializer, SessionSerializer
 
@@ -36,6 +37,24 @@ def post_message(request, session_id):
         {
             "reply": result.reply,
             "escalated": result.escalated,
+            "events": result.events,
+            "action": result.action,
+        }
+    )
+
+
+@api_view(["POST"])
+def order_form(request, session_id):
+    """Submit a dynamic order form; returns the deterministic rules-engine quote."""
+    session = get_object_or_404(Session, id=session_id)
+    try:
+        result = submit_order_form(session, request.data)
+    except FormError as exc:
+        return Response({"errors": exc.errors}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(
+        {
+            "reply": result.reply,
+            "action": result.action,
             "events": result.events,
         }
     )

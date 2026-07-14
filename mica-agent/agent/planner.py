@@ -51,11 +51,16 @@ class StubPlanner:
     _EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
     _PHONE_RE = re.compile(r"\+?\d[\d\s-]{6,}\d")
     _CODE_RE = re.compile(r"\b(\d{6})\b")
+    _ORDER_VERBS = ("order", "buy", "purchase", "want", "need", "get a", "build",
+                    "make me", "quote", "how much", "price of", "cost of")
+    _CONFIRM = {"confirm", "yes", "yep", "yes please", "go ahead", "do it", "place it",
+                "place the order", "confirm order", "proceed", "sounds good"}
 
     def decide(self, *, user_text: str, tool_specs: list[dict], history: list[dict]) -> Decision:
-        from . import sitemap
+        from . import catalog, sitemap
 
         text = user_text.strip()
+        lowered = text.lower()
 
         # A bare 6-digit code → verify login.
         code = self._CODE_RE.search(text)
@@ -73,6 +78,16 @@ class StubPlanner:
             return Decision(kind="tool", tool_name="request_login_code",
                             tool_args={"channel": "phone",
                                        "destination": re.sub(r"[\s-]", "", phone.group(0))})
+
+        # An explicit confirmation → place the order (gated server-side).
+        if lowered in self._CONFIRM:
+            return Decision(kind="tool", tool_name="create_order", tool_args={})
+
+        # An order intent naming a known service → start the order flow.
+        service = catalog.match_text(lowered)
+        if service is not None and any(v in lowered for v in self._ORDER_VERBS):
+            return Decision(kind="tool", tool_name="start_order",
+                            tool_args={"service": service.key})
 
         # A navigation intent that resolves to a known destination.
         dest = sitemap.match_text(text)

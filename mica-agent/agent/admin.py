@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AgentEvent, LoginChallenge, Message, Session
+from .models import AgentEvent, LoginChallenge, Message, Order, OrderDraft, Session
 
 
 @admin.register(Session)
@@ -23,6 +23,27 @@ class LoginChallengeAdmin(admin.ModelAdmin):
     readonly_fields = (
         "id", "session", "channel", "destination", "code_hash",
         "attempts", "max_attempts", "expires_at", "consumed_at", "created_at",
+    )
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(OrderDraft)
+class OrderDraftAdmin(admin.ModelAdmin):
+    list_display = ("session", "service", "status", "updated_at")
+    list_filter = ("status", "service")
+    readonly_fields = ("id", "session", "created_at", "updated_at")
+
+
+@admin.register(Order)
+class OrderAdmin(admin.ModelAdmin):
+    list_display = ("id", "service", "currency", "amount", "status", "customer_ref", "created_at")
+    list_filter = ("status", "service")
+    # Amount/breakdown come from the pricing engine; never hand-edit money.
+    readonly_fields = (
+        "id", "session", "customer_ref", "service", "params",
+        "currency", "amount", "breakdown", "created_at",
     )
 
     def has_change_permission(self, request, obj=None):

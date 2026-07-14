@@ -34,12 +34,8 @@ def test_navigate_enum_matches_sitemap():
     )
 
 
-def test_registry_now_exposes_p2_tools():
+def test_registry_exposes_login_and_navigation_tools():
     from agent.tools import registry
 
-    assert set(registry.names()) == {
-        "echo",
-        "request_login_code",
-        "verify_login_code",
-        "navigate",
-    }
+    # Subset check so later phases can add tools without churning this test.
+    assert {"request_login_code", "verify_login_code", "navigate"} <= set(registry.names())

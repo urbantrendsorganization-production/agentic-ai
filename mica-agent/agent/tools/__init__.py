@@ -3,6 +3,7 @@ from .base import Tool, ToolRegistry, ToolResult, registry
 from .echo import EchoTool
 from .login import RequestLoginCodeTool, VerifyLoginCodeTool
 from .navigate import NavigateTool
+from .order import CreateOrderTool, StartOrderTool
 
 __all__ = [
     "Tool",
@@ -13,4 +14,6 @@ __all__ = [
     "RequestLoginCodeTool",
     "VerifyLoginCodeTool",
     "NavigateTool",
+    "StartOrderTool",
+    "CreateOrderTool",
 ]

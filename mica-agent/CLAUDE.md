@@ -10,11 +10,26 @@ guardrails, and the gate-driven phase plan (P1–P6). The Next.js embed widget i
 a separate deliverable and not in this repo; through P4 the agent is exercised
 via the test suite and a placeholder widget.
 
-**Current phase: P2 done → P3 next.** Tools so far: `echo` (P1), plus
-`request_login_code` / `verify_login_code` and `navigate` (P2). P3 is ordering +
-dynamic forms (rules-engine quotes — deterministic money, never the model), then
-P4 support/tickets. Build on the existing `Tool` contract; don't run ahead of
-the current gate.
+**Current phase: P3 done → P4 next.** Tools: `echo` (P1); `request_login_code` /
+`verify_login_code` / `navigate` (P2); `start_order` / `create_order` (P3). P4 is
+support: KB answers + ticket creation with the transcript attached. Build on the
+existing `Tool` contract; don't run ahead of the current gate.
+
+P3 ordering flow (a small state machine over `OrderDraft`, one active per
+session): `start_order` names a catalog service and pops its dynamic form →
+widget POSTs to `/order/form/` → `loop.submit_order_form` validates
+(`agent/forms.py`) + prices (`agent/pricing.py`) deterministically, stores the
+quote on the draft (status `quoted`) → `create_order` is **gated on a quoted
+draft** and copies the server-computed amount into a `pending` `Order`.
+- **Deterministic money is the load-bearing rule**: prices come only from
+  `agent/pricing.py` + `agent/catalog.py`. Order tools never accept or emit a
+  price; `create_order` takes no args. Never let the model or a form field set an
+  amount.
+- `TurnResult.action` carries the verified tool's structured result to the widget
+  (`action: show_form|navigate|quote`, or an outcome like `{created: true}`).
+- Form submission is deliberately NOT routed through the planner — structured
+  input needs validation + the engine, not an LLM — but it's still logged as a
+  full turn so the audit trail stays unbroken.
 
 Key P2 patterns to reuse:
 - **Business outcome vs failure.** A tool can return `ok=True` yet report a

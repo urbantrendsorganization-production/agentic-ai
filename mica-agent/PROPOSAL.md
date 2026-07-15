@@ -148,3 +148,5 @@ Each phase is gate-driven: no moving forward until the gate passes (same discipl
 ## 12. Future direction
 
 Once the pilot passes, the same agent core becomes: (a) the Conduit tenant-facing ordering agent, (b) a RentFlow tenant support agent, and (c) a sellable "agent add-on" for client sites — turning this internal tool into product-line leverage.
+
+**Backend pricing integration.** The pilot's pricing rules and figures live in `agent/catalog.py` as illustrative in-code rates. Once the ordering tool is wired to the company's real pricing backend, quotes should be computed from the company's actual, live prices instead of the hard-coded rules — while keeping the deterministic-money guardrail intact: prices still come only from a server-side source of truth (now the backend), never from the model. Only the *source* of the numbers changes; `agent/pricing.py` stays the single, auditable engine and order tools still never accept or emit an amount.

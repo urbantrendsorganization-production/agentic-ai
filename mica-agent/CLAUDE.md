@@ -10,10 +10,21 @@ guardrails, and the gate-driven phase plan (P1–P6). The Next.js embed widget i
 a separate deliverable and not in this repo; through P4 the agent is exercised
 via the test suite and a placeholder widget.
 
-**Current phase: P3 done → P4 next.** Tools: `echo` (P1); `request_login_code` /
-`verify_login_code` / `navigate` (P2); `start_order` / `create_order` (P3). P4 is
-support: KB answers + ticket creation with the transcript attached. Build on the
-existing `Tool` contract; don't run ahead of the current gate.
+**Current phase: P4 done → P5 (design-gated) / P6 next.** Tools: `echo` (P1);
+`request_login_code` / `verify_login_code` / `navigate` (P2); `start_order` /
+`create_order` (P3); `answer_question` / `create_ticket` (P4). Build on the
+existing `Tool` contract; don't run ahead of the current gate. P5 (Mika design
+integration) is blocked on design assets, so per the proposal the next
+engineering work is P6 hardening.
+
+P4 support flow: `answer_question` serves *canned* KB content — the model picks a
+whitelisted topic key (`agent/kb.py`), never writes the answer. `create_ticket`
+is the escalation path: the model proposes only a subject/category and the loop
+attaches a **server-authored transcript snapshot** (`agent/tickets.py`) to a
+`Ticket`. The loop also auto-opens a ticket when it exhausts retries
+(`reason=verify_exhausted`), so every escalation leaves a durable, audited
+artifact. A tool signals a human handoff via `result.data["escalated"]`, which
+the loop lifts onto `TurnResult.escalated`.
 
 P3 ordering flow (a small state machine over `OrderDraft`, one active per
 session): `start_order` names a catalog service and pops its dynamic form →

@@ -4,6 +4,7 @@ from .echo import EchoTool
 from .login import RequestLoginCodeTool, VerifyLoginCodeTool
 from .navigate import NavigateTool
 from .order import CreateOrderTool, StartOrderTool
+from .support import AnswerQuestionTool, CreateTicketTool
 
 __all__ = [
     "Tool",
@@ -16,4 +17,6 @@ __all__ = [
     "NavigateTool",
     "StartOrderTool",
     "CreateOrderTool",
+    "AnswerQuestionTool",
+    "CreateTicketTool",
 ]

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AgentEvent, LoginChallenge, Message, Order, OrderDraft, Session
+from .models import AgentEvent, LoginChallenge, Message, Order, OrderDraft, Session, Ticket
 
 
 @admin.register(Session)
@@ -45,6 +45,24 @@ class OrderAdmin(admin.ModelAdmin):
         "id", "session", "customer_ref", "service", "params",
         "currency", "amount", "breakdown", "created_at",
     )
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Ticket)
+class TicketAdmin(admin.ModelAdmin):
+    list_display = ("ref", "category", "reason", "status", "customer_ref", "created_at")
+    list_filter = ("status", "category", "reason")
+    # The attached transcript is an audit snapshot; never hand-edit it.
+    readonly_fields = (
+        "id", "ref", "session", "customer_ref", "subject", "category",
+        "reason", "transcript", "status", "created_at",
+    )
+
+    @admin.display(description="Ref")
+    def ref(self, obj):
+        return obj.ref
 
     def has_change_permission(self, request, obj=None):
         return False

@@ -151,6 +151,53 @@ class Order(models.Model):
         return f"Order {self.service} {self.currency} {self.amount} ({self.status})"
 
 
+class Ticket(models.Model):
+    """A support escalation with the conversation transcript attached (§5, §8).
+
+    Opened when the agent can't resolve a request from the knowledge base, when
+    the customer asks for a human, or when the loop exhausts its retries.
+    `transcript` is a server-authored snapshot of the Message log — the model
+    never writes it. Always starts `open` for a human to action; the agent never
+    resolves tickets itself (proposal §8 — escalation path).
+    """
+
+    STATUS_OPEN = "open"
+    STATUS_CHOICES = [(STATUS_OPEN, "Open")]
+
+    CATEGORY_CHOICES = [
+        ("order", "Order"),
+        ("billing", "Billing"),
+        ("technical", "Technical"),
+        ("general", "General"),
+        ("other", "Other"),
+    ]
+
+    REASON_AGENT_HANDOFF = "agent_handoff"        # the model chose to escalate
+    REASON_VERIFY_EXHAUSTED = "verify_exhausted"  # the loop ran out of retries
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="tickets")
+    customer_ref = models.CharField(max_length=255, blank=True, default="")
+    subject = models.CharField(max_length=200)
+    category = models.CharField(max_length=16, choices=CATEGORY_CHOICES, default="other")
+    reason = models.CharField(max_length=32, default=REASON_AGENT_HANDOFF)
+    # Server-authored snapshot of the transcript: [{role, text, at}]. Never model-set.
+    transcript = models.JSONField(default=list)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_OPEN)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    @property
+    def ref(self) -> str:
+        """Short human-facing reference the agent can read back to the customer."""
+        return f"UT-{str(self.id)[:8].upper()}"
+
+    def __str__(self) -> str:
+        return f"Ticket {self.ref} ({self.category}) for {self.session_id}"
+
+
 class AgentEvent(models.Model):
     """Append-only record of everything the agent did on a turn.
 

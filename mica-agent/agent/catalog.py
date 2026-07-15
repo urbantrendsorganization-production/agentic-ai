@@ -7,6 +7,13 @@ requirements, and (3) the pricing rule. The LLM only gathers requirements and
 picks a service key; every price comes from the `price` rule here.
 
 Amounts are in Kenyan shillings (KES), as whole Decimals.
+
+NOTE (future — see PROPOSAL §12 "Backend pricing integration"): the rates below
+are illustrative pilot figures held in code. When the tool is wired to the
+company's real pricing backend, `price` should read the company's live prices
+instead of these constants. The deterministic-money guardrail is unchanged — the
+number's *source* moves to the backend, but it is still server-side truth that
+the model never sets, and `agent/pricing.py` stays the sole engine.
 """
 from __future__ import annotations
 

@@ -24,8 +24,9 @@ from django.db.models import Max
 
 from . import pricing
 from .forms import FormError, validate_submission
-from .models import AgentEvent, Message, OrderDraft, Session
+from .models import AgentEvent, Message, OrderDraft, Session, Ticket
 from .planner import get_planner
+from .tickets import open_ticket
 from .tools import registry
 
 log = logging.getLogger(__name__)
@@ -133,14 +134,26 @@ def handle_message(session: Session, user_text: str) -> TurnResult:
             # navigate); others (e.g. order created) carry their outcome.
             if isinstance(result.data, dict) and result.data:
                 action = result.data
+                # A tool can hand off to a human (e.g. create_ticket); it signals
+                # that in its result and the turn is marked escalated.
+                escalated = bool(result.data.get("escalated"))
             break
         # else: loop and retry / try again until AGENT_MAX_STEPS
     else:
-        # Exhausted attempts without a verified outcome → escalate.
+        # Exhausted attempts without a verified outcome → escalate to a human by
+        # opening a ticket with the transcript attached (proposal §8).
         escalated = True
+        ticket = open_ticket(
+            session,
+            subject=f"Unresolved request: {user_text[:120]}",
+            category="other",
+            reason=Ticket.REASON_VERIFY_EXHAUSTED,
+        )
+        events.log(AgentEvent.STEP_ERROR, reason="verify_exhausted", ticket_ref=ticket.ref)
+        action = {"action": "ticket_created", "ticket_ref": ticket.ref, "escalated": True}
         reply = (
-            "I couldn't complete that just now, so I've flagged it for a human on "
-            "the UrbanTrends team. They'll follow up shortly."
+            f"I couldn't complete that just now, so I've opened ticket {ticket.ref} for "
+            "a human on the UrbanTrends team — they'll follow up shortly."
         )
 
     # 4. respond & log.

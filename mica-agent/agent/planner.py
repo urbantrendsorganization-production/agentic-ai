@@ -55,9 +55,12 @@ class StubPlanner:
                     "make me", "quote", "how much", "price of", "cost of")
     _CONFIRM = {"confirm", "yes", "yep", "yes please", "go ahead", "do it", "place it",
                 "place the order", "confirm order", "proceed", "sounds good"}
+    _ESCALATE = ("talk to a human", "speak to a human", "talk to a person",
+                 "speak to a person", "speak to someone", "real person", "human agent",
+                 "raise a ticket", "open a ticket", "file a complaint", "make a complaint")
 
     def decide(self, *, user_text: str, tool_specs: list[dict], history: list[dict]) -> Decision:
-        from . import catalog, sitemap
+        from . import catalog, kb, sitemap
 
         text = user_text.strip()
         lowered = text.lower()
@@ -83,6 +86,11 @@ class StubPlanner:
         if lowered in self._CONFIRM:
             return Decision(kind="tool", tool_name="create_order", tool_args={})
 
+        # An explicit ask for a human → open a support ticket (escalation).
+        if any(phrase in lowered for phrase in self._ESCALATE):
+            return Decision(kind="tool", tool_name="create_ticket",
+                            tool_args={"subject": text[:120], "category": "other"})
+
         # An order intent naming a known service → start the order flow.
         service = catalog.match_text(lowered)
         if service is not None and any(v in lowered for v in self._ORDER_VERBS):
@@ -94,6 +102,12 @@ class StubPlanner:
         if dest is not None:
             return Decision(kind="tool", tool_name="navigate",
                             tool_args={"destination": dest.key})
+
+        # A common support question we can answer from the knowledge base.
+        article = kb.match_text(lowered)
+        if article is not None:
+            return Decision(kind="tool", tool_name="answer_question",
+                            tool_args={"topic": article.key})
 
         return Decision(kind="tool", tool_name="echo", tool_args={"text": user_text})
 

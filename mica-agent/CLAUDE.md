@@ -10,10 +10,19 @@ guardrails, and the gate-driven phase plan (P1–P6). The embeddable widget now
 lives in `widget/` (self-contained vanilla JS, shadow-DOM isolated) and is served
 for dev by `runserver` at `/`.
 
-**Current phase: P5 widget landed; P2 login reworked to host-auth; P6 next.**
-Tools: `echo` (P1); `check_login` / `navigate` (P2); `start_order` /
+**Current phase: P6 hardening (in progress).** P1–P5 done + P2 login reworked to
+host-auth. Tools: `echo` (P1); `check_login` / `navigate` (P2); `start_order` /
 `create_order` (P3); `answer_question` / `create_ticket` (P4). Build on the
 existing `Tool` contract; don't run ahead of the current gate.
+
+P6 so far: **rate limits** (`agent/ratelimit.py` — fixed-window per-IP/per-session
+via the cache, fail-open; 429 + `Retry-After` on the session/message endpoints);
+a **red-team suite** (`tests/test_guardrails.py` — injected prices ignored, money
+stays engine-only, whitelists unescapable, a message can't set identity or place
+an order); and **audit review** (`manage.py reconstruct_session <id>` replays a
+session from `AgentEvent` and checks the log is gapless — success metric §10).
+Remaining: **cost tracking** (capture Claude token usage per turn when the real
+planner runs).
 
 **Login is a host-site auth *check*, not an agent-run flow.** Mika is an embedded
 helper on urbantrends.dev (headless django-allauth, passkey / email-code). She
@@ -83,7 +92,11 @@ system Django.
 ./.venv/bin/python -m pytest tests/test_loop.py::test_happy_path_runs_full_loop
 ./.venv/bin/ruff check .
 ./.venv/bin/python manage.py makemigrations agent  # after any models.py change
+./.venv/bin/python manage.py reconstruct_session <id>  # audit: replay a session (P6)
 ```
+
+The widget demo is served at `/` by `runserver`; the embeddable is
+`widget/mika-widget.js`.
 
 `docker compose up` runs the production shape (web + Postgres + Redis + Celery).
 

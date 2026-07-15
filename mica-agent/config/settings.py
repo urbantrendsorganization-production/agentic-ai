@@ -102,6 +102,16 @@ AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "4"))
 IDENTITY_BACKEND = os.getenv("IDENTITY_BACKEND", "stub")
 ALLAUTH_BASE_URL = os.getenv("ALLAUTH_BASE_URL", "").strip()
 
+# ── Rate limits (proposal §8, P6) ─────────────────────────────────────────────
+# Fixed-window per-minute caps, enforced via the cache (LocMemCache in dev,
+# Redis in prod). Fail-open by design (see agent/ratelimit.py).
+RATE_LIMIT_ENABLED = _bool("RATE_LIMIT_ENABLED", "true")
+RATE_LIMIT_IP_SESSIONS_PER_MINUTE = int(os.getenv("RATE_LIMIT_IP_SESSIONS_PER_MINUTE", "30"))
+RATE_LIMIT_IP_MESSAGES_PER_MINUTE = int(os.getenv("RATE_LIMIT_IP_MESSAGES_PER_MINUTE", "60"))
+RATE_LIMIT_SESSION_MESSAGES_PER_MINUTE = int(
+    os.getenv("RATE_LIMIT_SESSION_MESSAGES_PER_MINUTE", "30")
+)
+
 STATIC_URL = "static/"
 # The embeddable Mika widget (P5) is served from here in dev so `runserver` can
 # host the full demo end-to-end; production ships it as a static asset/CDN embed.

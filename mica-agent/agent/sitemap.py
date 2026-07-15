@@ -30,6 +30,7 @@ DESTINATIONS: dict[str, Destination] = {
         Destination("contact", "/contact", "Contact", ("contact", "reach", "get in touch", "email us")),
         Destination("about", "/about", "About", ("about", "who you are", "team", "company")),
         Destination("orders", "/account/orders", "Your orders", ("orders", "my orders", "order history")),
+        Destination("signin", "/login", "Sign in", ("sign in", "log in", "signin", "login", "my account")),
     ]
 }
 

@@ -15,7 +15,9 @@ class Session(models.Model):
     """One conversation between a visitor and the agent.
 
     Holds only lightweight state; the authoritative history is the AgentEvent
-    log. `customer_ref` is set once a login tool verifies the visitor (P2).
+    log. `customer_ref` is the host-site identity, resolved once at session
+    creation by verifying the visitor's urbantrends.dev session (agent/identity.py);
+    it stays blank for anonymous visitors. Mika never sets it herself.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -48,46 +50,6 @@ class Message(models.Model):
 
     def __str__(self) -> str:
         return f"{self.role}: {self.text[:40]}"
-
-
-class LoginChallenge(models.Model):
-    """A pending OTP login for a session (proposal §5 — customer login).
-
-    The code is stored hashed, never in clear. A challenge is single-use, expires
-    after a short window, and caps verification attempts. On success the loop
-    binds the verified identity onto Session.customer_ref.
-    """
-
-    CHANNEL_EMAIL = "email"
-    CHANNEL_PHONE = "phone"
-    CHANNEL_CHOICES = [(CHANNEL_EMAIL, "Email"), (CHANNEL_PHONE, "Phone")]
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="challenges")
-    channel = models.CharField(max_length=16, choices=CHANNEL_CHOICES)
-    destination = models.CharField(max_length=255, help_text="Email address or phone number")
-    code_hash = models.CharField(max_length=255)
-    attempts = models.PositiveSmallIntegerField(default=0)
-    max_attempts = models.PositiveSmallIntegerField(default=5)
-    expires_at = models.DateTimeField()
-    consumed_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-
-    def is_active(self, now=None) -> bool:
-        from django.utils import timezone
-
-        now = now or timezone.now()
-        return (
-            self.consumed_at is None
-            and self.attempts < self.max_attempts
-            and now < self.expires_at
-        )
-
-    def __str__(self) -> str:
-        return f"Challenge {self.channel}:{self.destination} for {self.session_id}"
 
 
 class OrderDraft(models.Model):

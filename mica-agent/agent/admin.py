@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AgentEvent, LoginChallenge, Message, Order, OrderDraft, Session, Ticket
+from .models import AgentEvent, Message, Order, OrderDraft, Session, Ticket
 
 
 @admin.register(Session)
@@ -13,20 +13,6 @@ class SessionAdmin(admin.ModelAdmin):
 class MessageAdmin(admin.ModelAdmin):
     list_display = ("session", "role", "text", "created_at")
     list_filter = ("role",)
-
-
-@admin.register(LoginChallenge)
-class LoginChallengeAdmin(admin.ModelAdmin):
-    list_display = ("session", "channel", "destination", "attempts", "expires_at", "consumed_at")
-    list_filter = ("channel",)
-    # Never expose the code hash for editing; challenges are system-managed.
-    readonly_fields = (
-        "id", "session", "channel", "destination", "code_hash",
-        "attempts", "max_attempts", "expires_at", "consumed_at", "created_at",
-    )
-
-    def has_change_permission(self, request, obj=None):
-        return False
 
 
 @admin.register(OrderDraft)

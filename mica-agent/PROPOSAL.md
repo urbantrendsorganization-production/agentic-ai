@@ -41,7 +41,7 @@ The verify step is what makes this *agentic* rather than a chatbot: the agent is
 
 | Capability | What the agent does | Backend action |
 |---|---|---|
-| **Customer login** | Initiates login via email or phone, guides through OTP | Triggers OTP send (existing hardened SMS stack: Africa's Talking primary, fallback provider), verifies code |
+| **Customer login** | Recognises whether the visitor is signed in on urbantrends.dev and greets them accordingly; if not, deep-links them to the site's sign-in page | **Verifies the host-site session** (headless django-allauth — passkey / email-code) by introspecting its session endpoint; Mika never registers users or issues codes. allauth stays the single source of truth |
 | **Site navigation** | Answers "where do I find X", deep-links the user to the right page/section | Read-only site map + `navigate` tool that the widget executes client-side |
 | **Ordering** | Gathers requirements conversationally, quotes a price, creates the order | LLM gathers requirements → **deterministic pricing rules engine** computes the quote (the model never invents prices) → order record created in `pending` state |
 | **Dynamic forms** | Pops a form in/out of the chat when structured info is needed (name, KRA PIN, project brief, etc.) | JSONB-defined form schemas rendered by the widget; submissions validated server-side |
@@ -61,7 +61,7 @@ The verify step is what makes this *agentic* rather than a chatbot: the agent is
 └───────┬──────────┬──────────┘
         │          │
 ┌───────▼───┐ ┌────▼──────────┐
-│ Claude API │ │ Action layer   │  OTP/login, orders, pricing
+│ Claude API │ │ Action layer   │  host-auth check, orders, pricing
 │ (tool use) │ │ (Django apps)  │  rules engine, tickets, forms
 └───────────┘ └────┬──────────┘
                    │
@@ -108,7 +108,7 @@ The agent is not presented as a chat bubble. It appears as **"Mika from UrbanTre
 - **Deterministic money:** all prices and quotes come from the rules engine, never the model. The model's job is requirement-gathering only.
 - **Tool whitelist + server-side validation:** every tool input re-validated in Django regardless of what the model sends.
 - **Confirmation gates:** order creation and any state-changing action require explicit user confirmation in the widget before execution.
-- **Rate limits:** per-session and per-IP (Redis), reusing the OTP rate-limit patterns.
+- **Rate limits:** per-session and per-IP (Redis), reusing the site's existing rate-limit patterns.
 - **Prompt-injection posture:** user content is data, not instructions; system prompt pins the tool contract; no free-text execution paths.
 - **Escalation path:** anything outside scope → ticket with transcript attached, human (me) notified.
 
@@ -121,7 +121,7 @@ The agent is not presented as a chat bubble. It appears as **"Mika from UrbanTre
 | Phase | Gate to pass |
 |---|---|
 | **P1 — Loop skeleton** | Wait → act → verify → respond → log works end-to-end with a single dummy tool |
-| **P2 — Login + navigation** | OTP login and deep-link navigation working through the placeholder widget |
+| **P2 — Login + navigation** | Host-site auth check (verify the urbantrends.dev session) and deep-link navigation working through the widget |
 | **P3 — Ordering + forms** | Full order flow: conversation → dynamic form → rules-engine quote → pending order |
 | **P4 — Support + escalation** | KB answers + ticket creation with transcript |
 | **P5 — Mika integration** | Mika design complete (Claude Design screens + Lottie/sprite state assets); avatar states wired to the loop (idle/thinking/checking/talking/pointing/celebrating/apologetic); widget restyled to the site design system. **This phase only starts once the Mika design is finished — if P4's gate passes first, engineering proceeds to P6 hardening work in the meantime and circles back.** |

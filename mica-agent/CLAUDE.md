@@ -6,16 +6,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The **agent service** for Mica — an agentic customer bot for urbantrends.dev
 (Django + DRF orchestrator). `PROPOSAL.md` is the source of truth for scope,
-guardrails, and the gate-driven phase plan (P1–P6). The Next.js embed widget is
-a separate deliverable and not in this repo; through P4 the agent is exercised
-via the test suite and a placeholder widget.
+guardrails, and the gate-driven phase plan (P1–P6). The embeddable widget now
+lives in `widget/` (self-contained vanilla JS, shadow-DOM isolated) and is served
+for dev by `runserver` at `/`.
 
-**Current phase: P4 done → P5 (design-gated) / P6 next.** Tools: `echo` (P1);
-`request_login_code` / `verify_login_code` / `navigate` (P2); `start_order` /
+**Current phase: P5 widget landed; P2 login reworked to host-auth; P6 next.**
+Tools: `echo` (P1); `check_login` / `navigate` (P2); `start_order` /
 `create_order` (P3); `answer_question` / `create_ticket` (P4). Build on the
-existing `Tool` contract; don't run ahead of the current gate. P5 (Mika design
-integration) is blocked on design assets, so per the proposal the next
-engineering work is P6 hardening.
+existing `Tool` contract; don't run ahead of the current gate.
+
+**Login is a host-site auth *check*, not an agent-run flow.** Mika is an embedded
+helper on urbantrends.dev (headless django-allauth, passkey / email-code). She
+never issues codes or keeps a user table. `agent/identity.py` verifies the
+visitor's forwarded `sessionid` against allauth's headless session endpoint
+(pluggable seam: keyless `StubIdentityProvider` for dev/tests via an
+`X-UT-Identity` header, `AllauthIdentityProvider` for real). Identity is resolved
+once at **session creation** → `Session.customer_ref`; anonymous otherwise.
+`check_login` reports status and deep-links anonymous visitors to `/login`.
+
+P5 widget (`widget/mika-widget.js`): renders the Mika design (cyan chrome / red
+Mika) and consumes the loop's `action` outcomes (`show_form` → dynamic form,
+`quote` → server quote card, `created` → confirmation, `navigate` → toast,
+`ticket_created`/`escalated` → apologetic + ticket). Avatar state maps to the
+loop step (§7). It posts with `credentials:"include"` so the host `sessionid`
+reaches the agent through the site proxy. It never prices anything.
 
 P4 support flow: `answer_question` serves *canned* KB content — the model picks a
 whitelisted topic key (`agent/kb.py`), never writes the answer. `create_ticket`
@@ -42,17 +56,19 @@ draft** and copies the server-computed amount into a `pending` `Order`.
   input needs validation + the engine, not an LLM — but it's still logged as a
   full turn so the audit trail stays unbroken.
 
-Key P2 patterns to reuse:
+Key patterns to reuse:
 - **Business outcome vs failure.** A tool can return `ok=True` yet report a
-  negative result in `data` (e.g. a wrong OTP → `verified=False`). That is a
-  *verified run* and must NOT retry/escalate. Reserve `ok=False` for real
-  failures (provider down). `Tool.verify()` owns the intent check.
+  negative result in `data` (e.g. `check_login` → `signed_in=False`, or a
+  premature confirm → `created=False`). That is a *verified run* and must NOT
+  retry/escalate. Reserve `ok=False` for real failures (provider down).
+  `Tool.verify()` owns the intent check.
 - **Pluggable providers behind one interface**, selected by env, with a keyless
-  dev/test default — see `agent/planner.py` (`get_planner`) and `agent/otp.py`
-  (`get_sender`, `OTP_BACKEND`; `CONSOLE_OUTBOX` is the dev/test seam).
-- **Whitelists over free text.** `navigate` can only reach `agent/sitemap.py`
-  destinations; OTP inputs are regex-validated server-side. The model proposes;
-  the server validates.
+  dev/test default — see `agent/planner.py` (`get_planner`) and
+  `agent/identity.py` (`get_identity_provider`, `IDENTITY_BACKEND`;
+  `StubIdentityProvider` is the dev/test seam).
+- **Whitelists over free text.** `navigate` and `check_login` can only reach
+  `agent/sitemap.py` destinations; `answer_question` only serves `agent/kb.py`
+  topics. The model proposes; the server validates.
 
 ## Commands
 

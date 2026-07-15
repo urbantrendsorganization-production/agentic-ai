@@ -34,8 +34,11 @@ def test_navigate_enum_matches_sitemap():
     )
 
 
-def test_registry_exposes_login_and_navigation_tools():
+def test_registry_exposes_account_and_navigation_tools():
     from agent.tools import registry
 
     # Subset check so later phases can add tools without churning this test.
-    assert {"request_login_code", "verify_login_code", "navigate"} <= set(registry.names())
+    assert {"check_login", "navigate"} <= set(registry.names())
+    # Mika no longer runs her own OTP login (host allauth owns auth).
+    assert "request_login_code" not in registry.names()
+    assert "verify_login_code" not in registry.names()

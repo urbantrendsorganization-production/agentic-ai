@@ -14,7 +14,6 @@ dropping the key into `.env` flips on real behaviour with no code change.
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -48,9 +47,6 @@ class StubPlanner:
     only needs to be predictable, not clever.
     """
 
-    _EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
-    _PHONE_RE = re.compile(r"\+?\d[\d\s-]{6,}\d")
-    _CODE_RE = re.compile(r"\b(\d{6})\b")
     _ORDER_VERBS = ("order", "buy", "purchase", "want", "need", "get a", "build",
                     "make me", "quote", "how much", "price of", "cost of")
     _CONFIRM = {"confirm", "yes", "yep", "yes please", "go ahead", "do it", "place it",
@@ -58,29 +54,14 @@ class StubPlanner:
     _ESCALATE = ("talk to a human", "speak to a human", "talk to a person",
                  "speak to a person", "speak to someone", "real person", "human agent",
                  "raise a ticket", "open a ticket", "file a complaint", "make a complaint")
+    _LOGIN = ("log in", "login", "log me in", "sign in", "signin", "sign me in",
+              "am i logged in", "am i signed in", "who am i", "my account")
 
     def decide(self, *, user_text: str, tool_specs: list[dict], history: list[dict]) -> Decision:
         from . import catalog, kb, sitemap
 
         text = user_text.strip()
         lowered = text.lower()
-
-        # A bare 6-digit code → verify login.
-        code = self._CODE_RE.search(text)
-        if code and len(re.sub(r"\D", "", text)) <= 8:
-            return Decision(kind="tool", tool_name="verify_login_code",
-                            tool_args={"code": code.group(1)})
-
-        # An email / phone → start login.
-        email = self._EMAIL_RE.search(text)
-        if email:
-            return Decision(kind="tool", tool_name="request_login_code",
-                            tool_args={"channel": "email", "destination": email.group(0)})
-        phone = self._PHONE_RE.search(text)
-        if phone:
-            return Decision(kind="tool", tool_name="request_login_code",
-                            tool_args={"channel": "phone",
-                                       "destination": re.sub(r"[\s-]", "", phone.group(0))})
 
         # An explicit confirmation → place the order (gated server-side).
         if lowered in self._CONFIRM:
@@ -90,6 +71,10 @@ class StubPlanner:
         if any(phrase in lowered for phrase in self._ESCALATE):
             return Decision(kind="tool", tool_name="create_ticket",
                             tool_args={"subject": text[:120], "category": "other"})
+
+        # A login / account intent → check host-site auth status (never OTP).
+        if any(phrase in lowered for phrase in self._LOGIN):
+            return Decision(kind="tool", tool_name="check_login", tool_args={})
 
         # An order intent naming a known service → start the order flow.
         service = catalog.match_text(lowered)

@@ -94,14 +94,18 @@ CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 CLAUDE_ROUTER_MODEL = os.getenv("CLAUDE_ROUTER_MODEL", "claude-haiku-4-5-20251001")
 AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "4"))
 
-# ── OTP login ───────────────────────────────────────────────────────────────
-# "console" logs the code locally (dev/tests). The Africa's Talking SMS stack
-# drops in later without touching the tools/loop.
-OTP_BACKEND = os.getenv("OTP_BACKEND", "console")
-OTP_TTL_SECONDS = int(os.getenv("OTP_TTL_SECONDS", "600"))
-OTP_MAX_ATTEMPTS = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
+# ── Host-site identity (login) ────────────────────────────────────────────────
+# Mika is an embedded helper agent: she verifies the visitor's urbantrends.dev
+# login rather than authenticating anyone herself (agent/identity.py). "stub" is
+# the keyless dev/test default; "allauth" introspects the host site's headless
+# allauth session endpoint at ALLAUTH_BASE_URL.
+IDENTITY_BACKEND = os.getenv("IDENTITY_BACKEND", "stub")
+ALLAUTH_BASE_URL = os.getenv("ALLAUTH_BASE_URL", "").strip()
 
 STATIC_URL = "static/"
+# The embeddable Mika widget (P5) is served from here in dev so `runserver` can
+# host the full demo end-to-end; production ships it as a static asset/CDN embed.
+STATICFILES_DIRS = [BASE_DIR / "widget"]
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Surface the agent's own logs (incl. the console OTP backend in dev) on stderr.

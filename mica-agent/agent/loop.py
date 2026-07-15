@@ -40,6 +40,20 @@ class TurnResult:
     # A client-side action the widget must execute (e.g. show a form, navigate),
     # lifted from the verified tool's result. None for plain replies.
     action: dict | None = None
+    # Aggregate Claude token usage for the turn (sum over every planner call this
+    # turn, incl. retries). None when no model ran — i.e. the keyless stub (P6).
+    usage: dict | None = None
+
+
+def _add_usage(total: dict, usage: dict | None) -> None:
+    """Fold one planner call's usage into the running per-turn total."""
+    if not usage:
+        return
+    total["input_tokens"] += usage.get("input_tokens", 0)
+    total["output_tokens"] += usage.get("output_tokens", 0)
+    total["calls"] += 1
+    if usage.get("model") and "model" not in total:
+        total["model"] = usage["model"]
 
 
 class _EventWriter:
@@ -81,13 +95,16 @@ def handle_message(session: Session, user_text: str) -> TurnResult:
     reply = ""
     escalated = False
     action: dict | None = None
+    # Per-turn token spend, accumulated across every planner call incl. retries.
+    usage_total = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
 
     # act + verify, with one retry before escalation (proposal §4/§8).
     for attempt in range(1, settings.AGENT_MAX_STEPS + 1):
         decision = planner.decide(user_text=user_text, tool_specs=tool_specs, history=history)
+        _add_usage(usage_total, decision.usage)
 
         if decision.kind == "reply":
-            events.log(AgentEvent.STEP_ACT, decision="reply")
+            events.log(AgentEvent.STEP_ACT, decision="reply", usage=decision.usage)
             reply = decision.text
             break
 
@@ -98,6 +115,7 @@ def handle_message(session: Session, user_text: str) -> TurnResult:
             tool=decision.tool_name,
             args=decision.tool_args,
             attempt=attempt,
+            usage=decision.usage,
         )
 
         # Guardrail: only whitelisted tools, and re-validate their input.
@@ -156,11 +174,15 @@ def handle_message(session: Session, user_text: str) -> TurnResult:
             "a human on the UrbanTrends team — they'll follow up shortly."
         )
 
-    # 4. respond & log.
+    # 4. respond & log. The turn's total token spend rides on the respond event
+    # so an auditor sees per-turn cost inline in the timeline (None for the stub).
+    turn_usage = usage_total if usage_total["calls"] else None
     Message.objects.create(session=session, role=Message.ROLE_AGENT, text=reply)
-    events.log(AgentEvent.STEP_RESPOND, text=reply, escalated=escalated)
+    events.log(AgentEvent.STEP_RESPOND, text=reply, escalated=escalated, usage=turn_usage)
 
-    return TurnResult(reply=reply, escalated=escalated, events=events.count, action=action)
+    return TurnResult(
+        reply=reply, escalated=escalated, events=events.count, action=action, usage=turn_usage
+    )
 
 
 @transaction.atomic

@@ -10,19 +10,21 @@ guardrails, and the gate-driven phase plan (P1–P6). The embeddable widget now
 lives in `widget/` (self-contained vanilla JS, shadow-DOM isolated) and is served
 for dev by `runserver` at `/`.
 
-**Current phase: P6 hardening (in progress).** P1–P5 done + P2 login reworked to
+**Current phase: P6 hardening (complete).** P1–P5 done + P2 login reworked to
 host-auth. Tools: `echo` (P1); `check_login` / `navigate` (P2); `start_order` /
 `create_order` (P3); `answer_question` / `create_ticket` (P4). Build on the
 existing `Tool` contract; don't run ahead of the current gate.
 
-P6 so far: **rate limits** (`agent/ratelimit.py` — fixed-window per-IP/per-session
+P6: **rate limits** (`agent/ratelimit.py` — fixed-window per-IP/per-session
 via the cache, fail-open; 429 + `Retry-After` on the session/message endpoints);
 a **red-team suite** (`tests/test_guardrails.py` — injected prices ignored, money
 stays engine-only, whitelists unescapable, a message can't set identity or place
-an order); and **audit review** (`manage.py reconstruct_session <id>` replays a
-session from `AgentEvent` and checks the log is gapless — success metric §10).
-Remaining: **cost tracking** (capture Claude token usage per turn when the real
-planner runs).
+an order); **audit review** (`manage.py reconstruct_session <id>` replays a
+session from `AgentEvent` and checks the log is gapless — success metric §10);
+and **cost tracking** — `ClaudePlanner` surfaces per-call token usage on
+`Decision.usage` (`_usage_dict`, incl. cache tokens); the loop folds it across
+retries and logs it on each `act` event plus a per-turn total on `respond`, also
+exposed as `TurnResult.usage`. The stub reports no usage (keyless → no cost).
 
 **Login is a host-site auth *check*, not an agent-run flow.** Mika is an embedded
 helper on urbantrends.dev (headless django-allauth, passkey / email-code). She

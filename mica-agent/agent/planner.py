@@ -37,6 +37,26 @@ class Decision:
     text: str = ""
     tool_name: str = ""
     tool_args: dict[str, Any] | None = None
+    # Token usage for the model call that produced this decision, so the loop can
+    # log per-turn cost into the audit trail (P6). None when no model ran (stub).
+    usage: dict[str, Any] | None = None
+
+
+def _usage_dict(usage: Any, model: str) -> dict[str, Any] | None:
+    """Normalise an Anthropic `usage` object into a JSON-safe audit payload."""
+    if usage is None:
+        return None
+    out: dict[str, Any] = {
+        "model": model,
+        "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+        "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+    }
+    # Cache tokens are billed differently; capture them when present.
+    for opt in ("cache_creation_input_tokens", "cache_read_input_tokens"):
+        val = getattr(usage, opt, None)
+        if val:
+            out[opt] = val
+    return out
 
 
 class StubPlanner:
@@ -118,11 +138,13 @@ class ClaudePlanner:
             tools=tool_specs,
             messages=messages,
         )
+        usage = _usage_dict(resp.usage, self._model)
         for block in resp.content:
             if block.type == "tool_use":
-                return Decision(kind="tool", tool_name=block.name, tool_args=dict(block.input))
+                return Decision(kind="tool", tool_name=block.name,
+                                tool_args=dict(block.input), usage=usage)
         text = "".join(b.text for b in resp.content if b.type == "text").strip()
-        return Decision(kind="reply", text=text or "Sorry, I didn't catch that.")
+        return Decision(kind="reply", text=text or "Sorry, I didn't catch that.", usage=usage)
 
     def compose_reply(self, *, tool_summary: str, history: list[dict]) -> str:
         # For P1 the tool summary is a fine reply; richer post-tool narration

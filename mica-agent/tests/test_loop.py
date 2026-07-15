@@ -6,7 +6,7 @@ import pytest
 
 from agent.loop import handle_message
 from agent.models import AgentEvent, Message, Session
-from agent.planner import StubPlanner
+from agent.planner import Decision, StubPlanner
 from agent.tools import ToolResult, registry
 from agent.tools.base import Tool
 
@@ -93,3 +93,78 @@ def test_stub_planner_routes_to_echo():
     assert decision.kind == "tool"
     assert decision.tool_name == "echo"
     assert decision.tool_args == {"text": "hi"}
+
+
+class _UsagePlanner:
+    """A planner that reports token usage each call — stands in for real Claude."""
+
+    def __init__(self, usage):
+        self._usage = usage
+        self.calls = 0
+
+    def decide(self, *, user_text, tool_specs, history):
+        self.calls += 1
+        return Decision(kind="tool", tool_name="echo",
+                        tool_args={"text": user_text}, usage=dict(self._usage))
+
+    def compose_reply(self, *, tool_summary, history):
+        return tool_summary or "Done."
+
+
+def test_stub_planner_reports_no_usage():
+    """The keyless stub runs no model, so the turn carries no cost (P6)."""
+    session = Session.objects.create()
+    result = handle_message(session, "hello")
+
+    assert result.usage is None
+    respond = session.events.get(step=AgentEvent.STEP_RESPOND)
+    assert respond.payload["usage"] is None
+
+
+def test_planner_usage_is_logged_and_returned(monkeypatch):
+    """A model call's token usage lands on the act + respond events and TurnResult."""
+    from agent import loop as loop_mod
+
+    planner = _UsagePlanner({"model": "claude-sonnet-4-6", "input_tokens": 12, "output_tokens": 5})
+    monkeypatch.setattr(loop_mod, "get_planner", lambda: planner)
+
+    session = Session.objects.create()
+    result = handle_message(session, "hello")
+
+    assert result.usage == {
+        "model": "claude-sonnet-4-6", "input_tokens": 12, "output_tokens": 5, "calls": 1,
+    }
+    act = session.events.get(step=AgentEvent.STEP_ACT)
+    assert act.payload["usage"]["input_tokens"] == 12
+    respond = session.events.get(step=AgentEvent.STEP_RESPOND)
+    assert respond.payload["usage"]["calls"] == 1
+
+
+def test_usage_accumulates_across_retries(monkeypatch):
+    """Retries before escalation each cost tokens; the turn total sums them (P6)."""
+    from agent import loop as loop_mod
+
+    class BadEcho(Tool):
+        name = "echo"
+
+        def validate(self, args):
+            return {"text": args.get("text", "")}
+
+        def run(self, args, *, session):
+            return ToolResult(ok=True, data={"echoed": "WRONG"}, summary="x")
+
+        def verify(self, args, result):
+            return False  # never satisfies intent → loop retries then escalates
+
+    monkeypatch.setattr(registry, "get", lambda name: BadEcho() if name == "echo" else None)
+    planner = _UsagePlanner({"input_tokens": 10, "output_tokens": 4})
+    monkeypatch.setattr(loop_mod, "get_planner", lambda: planner)
+
+    session = Session.objects.create()
+    result = handle_message(session, "please echo")
+
+    assert result.escalated is True
+    assert planner.calls > 1  # it actually retried
+    assert result.usage["calls"] == planner.calls
+    assert result.usage["input_tokens"] == 10 * planner.calls
+    assert result.usage["output_tokens"] == 4 * planner.calls

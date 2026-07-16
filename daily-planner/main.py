@@ -13,15 +13,17 @@ import os
 import sys
 
 from config import config
+from notifiers import send_email, send_whatsapp
 from planner import build_plan
 from sources import (
+    create_events,
     gather_calendar,
+    gather_local,
     gather_news,
     gather_tasks,
     gather_urbantrends,
     gather_weather,
 )
-from notifiers import send_email, send_whatsapp
 
 log = logging.getLogger("daily-planner")
 
@@ -46,6 +48,12 @@ def gather_context() -> list[str]:
         gather_calendar(config.timezone),
         gather_urbantrends(config.urbantrends_api_url, config.urbantrends_api_token),
         gather_tasks(config.tasks_file, config.tasks_db),
+        gather_local(
+            config.local_paths,
+            config.local_repos,
+            config.local_max_file_bytes,
+            config.local_recent_days,
+        ),
         gather_news(config.news_feeds, config.news_max_items),
     ]
     present = [b for b in blocks if b.strip()]
@@ -56,6 +64,8 @@ def gather_context() -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="build but do not send")
+    parser.add_argument("--schedule", action="store_true",
+                        help="write the planned time blocks to Google Calendar")
     parser.add_argument("-v", "--verbose", action="store_true", help="verbose logging")
     args = parser.parse_args()
 
@@ -77,6 +87,7 @@ def main() -> int:
         user_name=config.user_name,
         context_blocks=context,
         profile=_read_profile(config.profile_file),
+        timezone=config.timezone,
     )
 
     print("\n" + "=" * 70)
@@ -85,11 +96,28 @@ def main() -> int:
     print(plan.whatsapp_message)
     print("\n── Email ──")
     print(plan.email_body)
+    if plan.events:
+        print("\n── Calendar events ──")
+        for e in plan.events:
+            loc = f"  @ {e.location}" if e.location else ""
+            print(f"  {e.start[11:16]}–{e.end[11:16]}  {e.title}{loc}")
     print("=" * 70 + "\n")
 
     if args.dry_run or config.dry_run:
-        log.info("dry-run: nothing sent.")
+        log.info("dry-run: nothing sent, no events created.")
         return 0
+
+    if args.schedule or config.schedule_events:
+        if plan.events:
+            created, skipped, failed = create_events(plan.events, config.timezone)
+            log.info("calendar: %d created, %d already present, %d failed",
+                     len(created), len(skipped), len(failed))
+            if failed:
+                log.error("could not create: %s", ", ".join(failed))
+        else:
+            log.info("scheduling on, but Claude proposed no events.")
+    else:
+        log.info("scheduling off — pass --schedule or set SCHEDULE_EVENTS=true to add events.")
 
     if config.email_enabled:
         try:

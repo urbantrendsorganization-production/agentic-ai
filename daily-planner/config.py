@@ -56,6 +56,16 @@ class Config:
     tasks_file: str = os.getenv("TASKS_FILE", "tasks.md")
     tasks_db: str = os.getenv("TASKS_DB", "tasks.db")
 
+    # Local machine context (files/folders on this computer + git repos)
+    local_paths: list[str] = field(
+        default_factory=lambda: _split(os.getenv("LOCAL_CONTEXT_PATHS"))
+    )
+    local_repos: list[str] = field(
+        default_factory=lambda: _split(os.getenv("LOCAL_GIT_REPOS"))
+    )
+    local_max_file_bytes: int = int(os.getenv("LOCAL_MAX_FILE_BYTES", "4000"))
+    local_recent_days: int = int(os.getenv("LOCAL_RECENT_DAYS", "2"))
+
     # Personal profile ("about me") to tailor the briefing
     profile_file: str = os.getenv("PROFILE_FILE", "profile.md")
 
@@ -74,6 +84,10 @@ class Config:
         ]
     )
     news_max_items: int = int(os.getenv("NEWS_MAX_ITEMS", "6"))
+
+    # Write the Claude-planned time blocks to Google Calendar. Off by default;
+    # enable for the scheduled run with SCHEDULE_EVENTS=true, or use --schedule.
+    schedule_events: bool = os.getenv("SCHEDULE_EVENTS", "false").lower() == "true"
 
     # Behaviour flags (set by CLI)
     dry_run: bool = False

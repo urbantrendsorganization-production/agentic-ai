@@ -1,30 +1,49 @@
-# Caddyfile — TLS termination + reverse proxy for the Mica agent service.
+# Caddyfile — host Caddy config for the Mica agent service.
 #
-# Runs on the Hetzner host, in front of the docker compose stack. `web` binds
-# 127.0.0.1:8000 (see docker-compose.yml), so only Caddy is publicly exposed.
-# Caddy auto-provisions and renews a Let's Encrypt certificate for the domain
+# Mica runs in docker compose with `web` bound to 127.0.0.1:8002 (host 8000 is
+# taken by urbantrends-backend). Host Caddy terminates TLS and proxies to it,
 # and sets X-Forwarded-Proto, which settings.py trusts (SECURE_PROXY_SSL_HEADER).
+# Static assets (admin, widget) are served by WhiteNoise from gunicorn, so Caddy
+# just proxies through — no separate static handling.
 #
-# Static assets (admin, widget) are served by WhiteNoise from within gunicorn,
-# so Caddy just proxies everything through — no separate static handling here.
+# ─────────────────────────────────────────────────────────────────────────────
+# RECOMMENDED — same-origin mount. Add this INSIDE the existing urbantrends.dev
+# site block in your host Caddyfile, ABOVE the catch-all reverse_proxy to the
+# frontend. `handle_path` strips the /agent prefix, so Mica sees /api/... as
+# normal, and the visitor's urbantrends.dev `sessionid` cookie flows through
+# untouched (agent/identity.py depends on this).
 #
-# Topology note: the clean design is same-origin — the urbantrends.dev site
-# proxies /agent/* to this service so the visitor's `sessionid` cookie flows
-# through untouched (see agent/identity.py). This file covers the standalone
-# subdomain case; for a path-based mount, put the `reverse_proxy` inside the
-# site's own Caddy/proxy config under a `handle_path /agent/*` block instead.
-
-agent.urbantrends.dev {
-	encode gzip zstd
-
-	reverse_proxy 127.0.0.1:8000 {
-		# Passive health-check against the agent's health endpoint.
-		health_uri /api/health/
-		health_interval 15s
-		health_timeout 5s
-	}
-
-	log {
-		output file /var/log/caddy/mica-access.log
-	}
-}
+#   urbantrends.dev {
+#       # ... existing routes (frontend :3000, backend :8000) ...
+#
+#       # Mica agent — same-origin, so the session cookie reaches her.
+#       handle_path /agent/* {
+#           reverse_proxy 127.0.0.1:8002 {
+#               health_uri /api/health/
+#               health_interval 15s
+#               health_timeout 5s
+#           }
+#       }
+#   }
+#
+# Then embed the widget on the site pointing at the mounted API base:
+#   <script src="https://cdn.../mika-widget.js" data-api-base="/agent/api"></script>
+# (The widget defaults to location.origin + "/api"; the /agent prefix routes it
+# to Mica instead of the urbantrends backend.)
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# ALTERNATIVE — dedicated subdomain (only if a same-origin mount isn't possible;
+# needs CORS + CSRF_TRUSTED_ORIGINS + a shared cookie domain to pass the session).
+# Uncomment to use standalone:
+#
+# agent.urbantrends.dev {
+# 	encode gzip zstd
+# 	reverse_proxy 127.0.0.1:8002 {
+# 		health_uri /api/health/
+# 		health_interval 15s
+# 		health_timeout 5s
+# 	}
+# 	log {
+# 		output file /var/log/caddy/mica-access.log
+# 	}
+# }

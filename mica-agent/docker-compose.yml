@@ -1,5 +1,10 @@
 # Production shape (proposal §6): web + Postgres + Redis + Celery worker.
 # Bind to 127.0.0.1 only; Caddy terminates TLS in front on the Hetzner box.
+#
+# Deploy on the shared box pulls the CI-built image (like every other stack):
+#   export MICA_TAG=<git-sha>            # tag CI published to GHCR
+#   docker compose pull && docker compose up -d
+# `build: .` is kept as a local fallback (`docker compose up --build`).
 services:
   db:
     image: postgres:16-alpine
@@ -16,6 +21,7 @@ services:
     restart: unless-stopped
 
   web:
+    image: ghcr.io/urbantrendsorganization-production/agentic-ai/mica-agent:${MICA_TAG:-latest}
     build: .
     command: >
       sh -c "python manage.py migrate &&
@@ -26,14 +32,17 @@ services:
       DATABASE_URL: postgres://mica:${POSTGRES_PASSWORD:-mica}@db:5432/mica
       REDIS_URL: redis://redis:6379/0
       CELERY_TASK_ALWAYS_EAGER: "false"
+    # Host 8000 is taken by urbantrends-backend on the shared box; publish 8002.
+    # Container still listens on 8000; the host reverse proxy targets 8002.
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8002:8000"
     depends_on:
       - db
       - redis
     restart: unless-stopped
 
   worker:
+    image: ghcr.io/urbantrendsorganization-production/agentic-ai/mica-agent:${MICA_TAG:-latest}
     build: .
     command: celery -A config worker -l info
     env_file: .env

@@ -42,6 +42,25 @@ def test_anonymous_session_has_blank_customer_ref():
     assert resp.json()["customer_ref"] == ""
 
 
+def test_message_upgrades_anonymous_session_when_visitor_signs_in():
+    # The widget persists a session across the /login round-trip, so a visitor can
+    # sign in *after* the session began. A later message must upgrade the session
+    # from anonymous to the now-verified identity (view._refresh_identity).
+    client = APIClient()
+    sid = client.post("/api/sessions/").json()["id"]  # created anonymous
+    assert Session.objects.get(id=sid).customer_ref == ""
+
+    # Same session, but now the host reports a signed-in visitor.
+    resp = client.post(
+        f"/api/sessions/{sid}/messages/",
+        {"text": "hello"},
+        format="json",
+        HTTP_X_UT_IDENTITY="edwin@urbantrends.dev",
+    )
+    assert resp.status_code == 200
+    assert Session.objects.get(id=sid).customer_ref == "edwin@urbantrends.dev"
+
+
 def test_check_login_reports_signed_in():
     session = Session.objects.create(customer_ref="edwin@urbantrends.dev")
     result = CheckLoginTool().run({}, session=session)

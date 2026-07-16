@@ -64,6 +64,22 @@ def create_session(request):
     return Response(SessionSerializer(session).data, status=status.HTTP_201_CREATED)
 
 
+def _refresh_identity(session, session_cookie, identity_hint):
+    """Re-resolve the visitor's host identity and upgrade the session if it changed.
+
+    Only writes when the resolved ref differs from what's stored — so an anonymous
+    session becomes signed-in once the visitor logs in, without churning the DB on
+    every turn. Never clears a known ref on a transient resolve miss (network blip).
+    """
+    identity = get_identity_provider().resolve(
+        session_cookie=session_cookie, identity_hint=identity_hint
+    )
+    ref = identity.customer_ref if identity else ""
+    if ref and ref != session.customer_ref:
+        session.customer_ref = ref
+        session.save(update_fields=["customer_ref"])
+
+
 @api_view(["POST"])
 def post_message(request, session_id):
     # Throttle per IP and per session before doing any work (proposal §8).
@@ -81,7 +97,13 @@ def post_message(request, session_id):
 
     # Carry the visitor's host sessionid through the turn (transient, unsaved) so
     # user-scoped backend calls (e.g. placing an order) can forward X-UT-Session.
-    session._ut_session_cookie = request.COOKIES.get("sessionid")
+    cookie = request.COOKIES.get("sessionid")
+    session._ut_session_cookie = cookie
+    # Identity is resolved at session creation, but the widget persists a session
+    # across page loads — so a visitor who signs in *after* the session began (e.g.
+    # via the login deep-link mid-order) would otherwise stay anonymous forever.
+    # Re-resolve each turn and upgrade customer_ref when it newly resolves/changes.
+    _refresh_identity(session, cookie, request.headers.get("X-UT-Identity"))
     result = handle_message(session, incoming.validated_data["text"])
     return Response(
         {

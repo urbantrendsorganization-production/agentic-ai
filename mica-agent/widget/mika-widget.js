@@ -165,14 +165,52 @@
     return '<div class="av"><img src="' + esc(CFG.avatar) + '" alt="Mika" draggable="false"></div>';
   }
 
+  // ── persistence: survive full-page navigations (the /login round-trip) ───────
+  // Mika deep-links anonymous visitors to /login mid-order. Without persisting the
+  // session, the page reload would start a brand-new chat AND abandon the
+  // server-side order draft — so the visitor signs in, comes back, and Mika has
+  // forgotten the quote. We stash the session id + a short transcript in
+  // localStorage (TTL-bounded so we never resurrect a stale conversation).
+  var STORE_KEY = "mika.state.v1";
+  var STORE_TTL = 6 * 60 * 60 * 1000; // 6h
+  function loadState() {
+    try {
+      var s = JSON.parse(window.localStorage.getItem(STORE_KEY) || "null");
+      if (!s || !s.sid || Date.now() - (s.ts || 0) > STORE_TTL) {
+        window.localStorage.removeItem(STORE_KEY);
+        return null;
+      }
+      return s;
+    } catch (e) { return null; }
+  }
+  function saveState(s) {
+    try {
+      s.ts = Date.now();
+      window.localStorage.setItem(STORE_KEY, JSON.stringify(s));
+    } catch (e) { /* private mode / disabled — degrade to in-memory only */ }
+  }
+
   function Widget() {
-    this.sessionId = null;
+    var st = loadState();
+    this.sessionId = st ? st.sid : null;
+    this.history = st && st.log ? st.log : []; // [{r:"u"|"m", t}] replayed on open
+    this.wasOpen = !!(st && st.open);          // reopen after a login round-trip
     this.draft = null; // active order draft form context {service}
     this.open = false;
     this.busy = false;
     this.unread = 0;
     this._build();
   }
+
+  Widget.prototype._persist = function () {
+    if (!this.sessionId) return; // nothing to resume until a session exists
+    saveState({ sid: this.sessionId, log: this.history.slice(-60), open: this.open });
+  };
+  Widget.prototype._pushHistory = function (r, t) {
+    this.history.push({ r: r, t: t });
+    if (this.history.length > 60) this.history = this.history.slice(-60);
+    this._persist();
+  };
 
   Widget.prototype._build = function () {
     this.host = el("div");
@@ -225,7 +263,11 @@
       "</div>";
     var min = el("button", "iconbtn", '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 5 h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>');
     min.setAttribute("aria-label", "Minimize");
-    min.addEventListener("click", function () { self._renderLauncher(); });
+    min.addEventListener("click", function () {
+      self.open = false;
+      self._persist();
+      self._renderLauncher();
+    });
     var actions = el("div"); actions.style.cssText = "display:flex;gap:6px";
     actions.appendChild(min);
     hd.appendChild(actions);
@@ -258,7 +300,15 @@
     this.headerDot = this.shadow.querySelector(".sdot");
     this.headerLabel = this.shadow.querySelector(".slabel");
 
-    if (!this._greeted) {
+    if (this.history && this.history.length) {
+      // Returning visitor (e.g. back from the /login redirect): replay the
+      // transcript so the conversation picks up exactly where it left off.
+      this._greeted = true;
+      var self3 = this;
+      this.history.forEach(function (m) {
+        if (m.r === "u") self3._user(m.t, true); else self3._mika(m.t, true);
+      });
+    } else if (!this._greeted) {
       this._greeted = true;
       this._mika(
         "Karibu! I'm Mika. I can get you a quote, set you up on an UrbanTrends " +
@@ -271,6 +321,7 @@
         { label: "TALK TO A HUMAN", text: "I'd like to talk to a human", ghost: true },
       ]);
     }
+    this._persist(); // remember the panel is open so we reopen after a page nav
     this.input.focus();
   };
 
@@ -302,14 +353,16 @@
     this._scroll();
     return node;
   };
-  Widget.prototype._mika = function (text) {
+  Widget.prototype._mika = function (text, replay) {
     var row = el("div", "row");
     row.innerHTML = avatarHTML() + '<div class="bubble mika">' + esc(text) + "</div>";
+    if (!replay) this._pushHistory("m", text);
     return this._append(row);
   };
-  Widget.prototype._user = function (text) {
+  Widget.prototype._user = function (text, replay) {
     var row = el("div", "row user-row");
     row.innerHTML = '<div class="bubble user">' + esc(text) + "</div>";
+    if (!replay) this._pushHistory("u", text);
     return this._append(row);
   };
   Widget.prototype._chips = function (chips) {
@@ -358,6 +411,7 @@
     if (this.sessionId) return Promise.resolve(this.sessionId);
     return this._api("/sessions/", {}).then(function (s) {
       self.sessionId = s.id;
+      self._persist();
       return s.id;
     });
   };
@@ -423,9 +477,15 @@
       if (res.reply) this._mika(res.reply);
       // Actually take the visitor there. The widget is same-origin on the host
       // site, so a relative path navigates the top-level page (e.g. /login).
-      // Brief delay so the toast + reply are readable before the page unloads.
+      // Append ?next=<here> so the login flow returns the visitor to this page —
+      // the session is persisted, so Mika reopens with the conversation + quote
+      // intact and they can just confirm again. Brief delay so the toast + reply
+      // are readable before the page unloads.
       if (dest) {
-        setTimeout(function () { window.location.assign(dest); }, 1600);
+        var back = window.location.pathname + window.location.search;
+        var url = dest + (dest.indexOf("?") === -1 ? "?" : "&") +
+          "next=" + encodeURIComponent(back);
+        setTimeout(function () { window.location.assign(url); }, 1600);
       }
       return;
     }
@@ -596,7 +656,11 @@
 
   function boot() {
     if (window.__mikaWidget) return;
-    window.__mikaWidget = new Widget();
+    var w = new Widget();
+    window.__mikaWidget = w;
+    // Reopen automatically after a full-page navigation (e.g. returning from the
+    // /login redirect) so the visitor lands back in their conversation.
+    if (w.wasOpen) w._openPanel();
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);

@@ -26,10 +26,11 @@ def test_navigate_tool_rejects_unknown_destination():
 
 
 def test_navigate_enum_matches_sitemap():
-    # The model is only ever offered whitelisted destinations.
+    # The model is only ever offered whitelisted destinations. spec() is the
+    # contract sent to Claude; it reflects the active sitemap (static or backend).
     from agent import sitemap
 
-    assert set(NavigateTool.input_schema["properties"]["destination"]["enum"]) == set(
+    assert set(NavigateTool().spec()["input_schema"]["properties"]["destination"]["enum"]) == set(
         sitemap.keys()
     )
 

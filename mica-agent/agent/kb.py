@@ -74,15 +74,84 @@ ARTICLES: dict[str, Article] = {
 }
 
 
+# ── Provider seam (BACKEND_APIS.md) ──────────────────────────────────────────
+# Answers come from the static ARTICLES above (keyless dev/test default) or the
+# live backend (GET /kb/articles) when URBANTRENDS_API_BASE is set. Either way the
+# model only ever picks a whitelisted key; the answer text is served, never written.
+
+
+def _match(articles: dict[str, Article], text: str) -> Article | None:
+    lowered = text.lower()
+    best: tuple[int, Article] | None = None
+    for article in articles.values():
+        for alias in article.aliases:
+            if alias in lowered and (best is None or len(alias) > best[0]):
+                best = (len(alias), article)
+    return best[1] if best else None
+
+
+class _StaticKb:
+    def all(self) -> dict[str, Article]:
+        return ARTICLES
+
+
+def _article_from_json(a: dict) -> Article:
+    return Article(
+        key=a["key"],
+        title=a.get("title", a["key"]),
+        answer=a.get("answer", ""),
+        aliases=tuple(a.get("aliases", ())),
+    )
+
+
+class _HttpKb:
+    _TTL = 300.0  # seconds; KB content is edited rarely
+
+    def __init__(self, client) -> None:
+        self._client = client
+        self._cache: dict[str, Article] | None = None
+        self._at = 0.0
+
+    def all(self) -> dict[str, Article]:
+        import time
+
+        now = time.monotonic()
+        if self._cache is not None and now - self._at < self._TTL:
+            return self._cache
+        data = self._client.get_json("/kb/articles")
+        self._cache = {a["key"]: _article_from_json(a) for a in data.get("articles", [])}
+        self._at = now
+        return self._cache
+
+
+_STATIC = _StaticKb()
+_http_cache: dict[str, _HttpKb] = {}
+
+
+def _provider():
+    from django.conf import settings
+
+    base = getattr(settings, "URBANTRENDS_API_BASE", "")
+    if not base:
+        return _STATIC
+    prov = _http_cache.get(base)
+    if prov is None:
+        from .backend import get_client
+
+        prov = _HttpKb(get_client())
+        _http_cache[base] = prov
+    return prov
+
+
 def get(key: str) -> Article:
-    article = ARTICLES.get(key)
+    article = _provider().all().get(key)
     if article is None:
         raise KeyError(f"unknown article: {key!r}")
     return article
 
 
 def keys() -> list[str]:
-    return list(ARTICLES)
+    return list(_provider().all())
 
 
 def match_text(text: str) -> Article | None:
@@ -90,10 +159,4 @@ def match_text(text: str) -> Article | None:
 
     Prefers the longest alias hit so specific phrases win over generic ones.
     """
-    lowered = text.lower()
-    best: tuple[int, Article] | None = None
-    for article in ARTICLES.values():
-        for alias in article.aliases:
-            if alias in lowered and (best is None or len(alias) > best[0]):
-                best = (len(alias), article)
-    return best[1] if best else None
+    return _match(_provider().all(), text)

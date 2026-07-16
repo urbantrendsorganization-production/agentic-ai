@@ -29,17 +29,28 @@ class AnswerQuestionTool(Tool):
         "services, order status) from the UrbanTrends knowledge base. Pick the "
         "closest topic. Only answer from the knowledge base — never invent an answer."
     )
+    # Enum filled per turn from the active KB (may be backend-sourced), so no
+    # network call at import time. spec() is the contract sent to the model.
     input_schema = {
         "type": "object",
         "properties": {
             "topic": {
                 "type": "string",
-                "enum": kb.keys(),
                 "description": "Which knowledge-base topic best answers the question.",
             }
         },
         "required": ["topic"],
     }
+
+    def spec(self) -> dict[str, Any]:
+        schema = {
+            "type": "object",
+            "properties": {
+                "topic": dict(self.input_schema["properties"]["topic"], enum=kb.keys()),
+            },
+            "required": ["topic"],
+        }
+        return {"name": self.name, "description": self.description, "input_schema": schema}
 
     def validate(self, args: dict[str, Any]) -> dict[str, Any]:
         topic = (args.get("topic") or "").strip()
@@ -59,7 +70,7 @@ class AnswerQuestionTool(Tool):
 
     def verify(self, args: dict[str, Any], result: ToolResult) -> bool:
         # Intent check: we served a real, whitelisted article.
-        return result.ok and result.data.get("topic") in kb.ARTICLES
+        return result.ok and result.data.get("topic") in set(kb.keys())
 
 
 @register

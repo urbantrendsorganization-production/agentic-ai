@@ -7,7 +7,7 @@ test_order.py / test_pricing.py, which run with the backend off.
 """
 import pytest
 
-from agent import catalog, pricing
+from agent import catalog, kb, pricing, sitemap
 from agent.backend import BackendError
 from agent.loop import handle_message, submit_order_form
 from agent.models import Order, Session, Ticket
@@ -35,6 +35,18 @@ _SERVICES = [
 ]
 
 
+_KB = [
+    {"key": "payment_methods", "title": "Payment methods",
+     "answer": "We take M-Pesa or bank transfer once your order is confirmed.",
+     "aliases": ["payment", "mpesa", "methods do you accept"]},
+]
+_SITEMAP = [
+    {"key": "pricing", "path": "/pricing", "label": "Pricing", "aliases": ["pricing", "prices"]},
+    {"key": "orders", "path": "/portal/orders", "label": "Your orders", "aliases": ["my orders"]},
+    {"key": "signin", "path": "/login", "label": "Sign in", "aliases": ["sign in", "log in"]},
+]
+
+
 class FakeBackend:
     def __init__(self):
         self.calls = []
@@ -46,6 +58,7 @@ class FakeBackend:
             "order_id": "ord_9", "ref": "UT-ORD-9", "status": "pending",
             "currency": "KES", "amount": "45000",
         }
+        self.ticket_response = {"ticket_id": "tkt_1", "ref": "UT-1", "status": "open"}
         self.raise_on_quote = None
         self.raise_on_order = None
 
@@ -53,6 +66,10 @@ class FakeBackend:
         self.calls.append(("GET", path, None, session_cookie, None))
         if path == "/services":
             return {"services": _SERVICES}
+        if path == "/kb/articles":
+            return {"articles": _KB}
+        if path == "/sitemap":
+            return {"destinations": _SITEMAP}
         raise AssertionError(f"unexpected GET {path}")
 
     def post_json(self, path, body, *, session_cookie=None, idempotency_key=None):
@@ -65,6 +82,8 @@ class FakeBackend:
             if self.raise_on_order:
                 raise self.raise_on_order
             return self.order_response
+        if path == "/tickets":
+            return self.ticket_response
         raise AssertionError(f"unexpected POST {path}")
 
 
@@ -78,9 +97,11 @@ def backend(monkeypatch):
     fake = FakeBackend()
     monkeypatch.setattr(settings, "URBANTRENDS_API_BASE", "http://test")
     monkeypatch.setattr(backend_mod, "get_client", lambda: fake)
-    catalog._http_cache.clear()
+    for mod in (catalog, kb, sitemap):
+        mod._http_cache.clear()
     yield fake
-    catalog._http_cache.clear()
+    for mod in (catalog, kb, sitemap):
+        mod._http_cache.clear()
 
 
 def test_client_builds_prefixed_url_and_auth(monkeypatch):
@@ -198,7 +219,8 @@ def test_order_requires_sign_in(backend):
 
 
 def test_order_provider_outage_escalates(backend):
-    """A backend outage on placement is a failure → loop retries then escalates."""
+    """A backend outage on placement is a failure → loop retries then escalates,
+    filing the ticket with the backend (system of record), not locally."""
     backend.raise_on_order = BackendError("backend_unreachable")
     session = Session.objects.create()
     handle_message(session, "order a landing page")
@@ -208,4 +230,43 @@ def test_order_provider_outage_escalates(backend):
 
     assert result.escalated is True
     assert Order.objects.count() == 0
-    assert Ticket.objects.filter(reason=Ticket.REASON_VERIFY_EXHAUSTED).exists()
+    assert any(c[1] == "/tickets" for c in backend.calls)
+    assert result.action["ticket_ref"] == "UT-1"
+    assert Ticket.objects.count() == 0  # delegated to the backend, not stored locally
+
+
+def test_kb_answer_sourced_from_backend(backend):
+    session = Session.objects.create()
+    result = handle_message(session, "what payment methods do you accept?")
+
+    assert result.action["action"] == "kb_answer"
+    assert result.action["topic"] == "payment_methods"
+    assert result.reply == "We take M-Pesa or bank transfer once your order is confirmed."
+
+
+def test_navigate_destination_sourced_from_backend(backend):
+    session = Session.objects.create()
+    result = handle_message(session, "where do I find your pricing?")
+
+    assert result.action["action"] == "navigate"
+    assert result.action["path"] == "/pricing"       # from the backend sitemap
+
+
+def test_ticket_delegated_to_backend(backend):
+    session = Session.objects.create()
+    session.customer_ref = "amina@example.com"
+    session.save()
+    session._ut_session_cookie = "cookie-xyz"
+    handle_message(session, "my site keeps crashing")
+    result = handle_message(session, "I want to speak to a human")
+
+    assert result.action["action"] == "ticket_created"
+    assert result.action["ticket_ref"] == "UT-1"
+    assert result.escalated is True
+    assert Ticket.objects.count() == 0  # backend is the system of record
+    post = [c for c in backend.calls if c[1] == "/tickets"][0]
+    _, _, body, cookie, idem = post
+    assert body["category"] == "other" and body["reason"] == "agent_handoff"
+    assert body["customer_ref"] == "amina@example.com"
+    assert [m["text"] for m in body["transcript"]]      # server-authored transcript attached
+    assert cookie == "cookie-xyz" and idem

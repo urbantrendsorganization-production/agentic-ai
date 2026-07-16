@@ -25,12 +25,25 @@ class NavigateTool(Tool):
         "properties": {
             "destination": {
                 "type": "string",
-                "enum": sitemap.keys(),
                 "description": "Which page to navigate the customer to.",
             }
         },
         "required": ["destination"],
     }
+
+    def spec(self) -> dict[str, Any]:
+        # Enum filled per turn from the active sitemap (may be backend-sourced),
+        # so no network call at import time. spec() is what's sent to the model.
+        schema = {
+            "type": "object",
+            "properties": {
+                "destination": dict(
+                    self.input_schema["properties"]["destination"], enum=sitemap.keys()
+                ),
+            },
+            "required": ["destination"],
+        }
+        return {"name": self.name, "description": self.description, "input_schema": schema}
 
     def validate(self, args: dict[str, Any]) -> dict[str, Any]:
         key = (args.get("destination") or "").strip().lower()
@@ -49,6 +62,4 @@ class NavigateTool(Tool):
 
     def verify(self, args: dict[str, Any], result: ToolResult) -> bool:
         # Intent check: we resolved to a real, whitelisted path.
-        return result.ok and result.data.get("path") in {
-            d.path for d in sitemap.DESTINATIONS.values()
-        }
+        return result.ok and result.data.get("path") in sitemap.paths()

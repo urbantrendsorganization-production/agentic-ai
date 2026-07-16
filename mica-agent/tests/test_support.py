@@ -27,8 +27,9 @@ def test_kb_answer_comes_from_whitelist_not_model():
     tool = AnswerQuestionTool()
     with pytest.raises(ValueError):
         tool.validate({"topic": "made_up_topic"})
-    # The model is only ever offered real knowledge-base topics.
-    assert set(tool.input_schema["properties"]["topic"]["enum"]) == set(kb.keys())
+    # The model is only ever offered real knowledge-base topics (spec() is the
+    # contract sent to Claude; it reflects the active KB, static or backend).
+    assert set(tool.spec()["input_schema"]["properties"]["topic"]["enum"]) == set(kb.keys())
 
 
 def test_request_for_human_opens_ticket_with_transcript():

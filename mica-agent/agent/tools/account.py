@@ -28,11 +28,18 @@ class CheckLoginTool(Tool):
 
     def run(self, args: dict[str, Any], *, session) -> ToolResult:
         if session.customer_ref:
-            return ToolResult(
-                ok=True,
-                data={"signed_in": True, "customer_ref": session.customer_ref},
-                summary=f"You're signed in as {session.customer_ref} — how can I help?",
-            )
+            from .. import customers
+
+            data = {"signed_in": True, "customer_ref": session.customer_ref}
+            # Best-effort enrichment (name + open-order count); None if unavailable.
+            profile = customers.fetch_me(session)
+            display = (profile or {}).get("display") or session.customer_ref
+            summary = f"You're signed in as {display}"
+            open_orders = (profile or {}).get("open_orders")
+            if open_orders:
+                data["open_orders"] = open_orders
+                summary += f" — you have {open_orders} open order{'s' if open_orders != 1 else ''}"
+            return ToolResult(ok=True, data=data, summary=summary + ". How can I help?")
         dest = sitemap.resolve("signin")
         return ToolResult(
             ok=True,

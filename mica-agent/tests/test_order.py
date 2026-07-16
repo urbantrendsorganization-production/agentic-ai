@@ -49,6 +49,19 @@ def test_full_order_flow_to_pending_order():
     session.order_drafts.get().status == OrderDraft.STATUS_PLACED
 
 
+def test_list_orders_shows_placed_order():
+    """Order-status flow: after placing, 'show my orders' lists it (local mode)."""
+    session = Session.objects.create(customer_ref="edwin@urbantrends.dev")
+    handle_message(session, "I want a landing page")
+    submit_order_form(session, {"pages": 1})
+    handle_message(session, "confirm")
+
+    result = handle_message(session, "show my orders")
+    assert result.action["action"] == "orders"
+    assert len(result.action["orders"]) == 1
+    assert result.action["orders"][0]["service"] == "landing_page"
+
+
 def test_confirmation_gate_blocks_order_without_quote():
     """create_order must not place anything until a quote exists (proposal §8)."""
     session = Session.objects.create()

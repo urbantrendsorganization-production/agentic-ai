@@ -89,3 +89,42 @@ def _place_backend(session, draft) -> dict:
         "amount": str(data.get("amount", quote.get("amount", ""))),
         "label": catalog.get(draft.service).label,
     }
+
+
+def list_orders(session) -> dict:
+    """The visitor's orders for the order-status flow. Returns {"orders": [...]} or
+    {"orders": None, "reason": "not_authenticated"} when sign-in is required.
+    """
+    if getattr(settings, "URBANTRENDS_API_BASE", ""):
+        return _list_backend(session)
+    return _list_local(session)
+
+
+def _order_dict(o: Order) -> dict:
+    return {
+        "ref": str(o.id)[:8], "service": o.service, "status": o.status,
+        "currency": o.currency, "amount": str(o.amount),
+    }
+
+
+def _list_local(session) -> dict:
+    # Signed-in visitors see all their orders; anonymous, just this session's.
+    qs = (
+        Order.objects.filter(customer_ref=session.customer_ref)
+        if session.customer_ref
+        else Order.objects.filter(session=session)
+    )
+    return {"orders": [_order_dict(o) for o in qs.order_by("-created_at")]}
+
+
+def _list_backend(session) -> dict:
+    from .backend import BackendError, get_client
+
+    cookie = getattr(session, "_ut_session_cookie", None)
+    try:
+        data = get_client().get_json("/orders/mine", session_cookie=cookie)
+    except BackendError as exc:
+        if exc.code == "not_authenticated":
+            return {"orders": None, "reason": "not_authenticated"}
+        raise
+    return {"orders": data.get("orders", [])}

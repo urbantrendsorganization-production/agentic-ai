@@ -10,10 +10,24 @@ guardrails, and the gate-driven phase plan (P1–P6). The embeddable widget now
 lives in `widget/` (self-contained vanilla JS, shadow-DOM isolated) and is served
 for dev by `runserver` at `/`.
 
-**Current phase: P6 hardening (complete).** P1–P5 done + P2 login reworked to
-host-auth. Tools: `echo` (P1); `check_login` / `navigate` (P2); `start_order` /
-`create_order` (P3); `answer_question` / `create_ticket` (P4). Build on the
-existing `Tool` contract; don't run ahead of the current gate.
+**Current phase: P6 hardening (complete) + live backend integration.** P1–P5
+done + P2 login reworked to host-auth. Tools: `echo` (P1); `check_login` /
+`navigate` (P2); `start_order` / `create_order` / `list_orders` (P3);
+`answer_question` / `create_ticket` (P4). Build on the existing `Tool` contract;
+don't run ahead of the current gate.
+
+**Backend integration (BACKEND_APIS.md / MICA_INTEGRATION.md).** Each data
+source is a provider behind one interface, selected by env: when
+`URBANTRENDS_API_BASE` is set, Mica sources catalog, pricing, orders, KB,
+sitemap, tickets, and customer profile from the urbantrends.dev backend
+(`agent/backend.py` — stdlib client, Bearer service key, `/api/v1/agent` prefix,
+`X-UT-Session` forwarding for user-scoped calls, `Idempotency-Key`, typed
+`BackendError`). Unset → the in-repo static modules (`catalog.py`, `pricing.py`,
+`kb.py`, `sitemap.py`, `tickets.py`), which stay the keyless dev/test default.
+Deterministic money still holds — the amount's *source* moves to the backend's
+quote engine, but the model never sets it. Orders + tickets delegate fully
+(backend = system of record; tickets fall back to a local row if it's
+unreachable so an escalation is never lost).
 
 P6: **rate limits** (`agent/ratelimit.py` — fixed-window per-IP/per-session
 via the cache, fail-open; 429 + `Retry-After` on the session/message endpoints);

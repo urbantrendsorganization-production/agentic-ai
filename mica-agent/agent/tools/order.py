@@ -166,3 +166,51 @@ class CreateOrderTool(Tool):
                 "They'll be in touch to finalise payment."
             ),
         )
+
+
+@register
+class ListOrdersTool(Tool):
+    name = "list_orders"
+    description = (
+        "Show the customer their existing orders and each one's status when they "
+        "ask about an order they've already placed (e.g. 'show my orders', "
+        "'what's the status of my order?'). Read-only — never places anything."
+    )
+    input_schema = {"type": "object", "properties": {}, "additionalProperties": False}
+
+    def run(self, args: dict[str, Any], *, session) -> ToolResult:
+        from .. import orders
+
+        result = orders.list_orders(session)
+        # Seeing your orders requires being signed in: deep-link to login.
+        if result.get("reason") == "not_authenticated":
+            from .. import sitemap
+
+            dest = sitemap.resolve("signin")
+            return ToolResult(
+                ok=True,
+                data={"action": "navigate", "reason": "not_authenticated",
+                      "path": dest.path, "label": dest.label},
+                summary=(
+                    "You'll need to sign in to see your orders — I'll point you to the "
+                    "sign-in page, then pop back and I'll pull them up."
+                ),
+            )
+
+        items = result.get("orders") or []
+        if not items:
+            return ToolResult(
+                ok=True,
+                data={"action": "orders", "orders": []},
+                summary="I don't see any orders on your account yet — want to start one?",
+            )
+        lines = "\n".join(
+            f"  • {o['ref']} — {o['service']} ({o['status']}) "
+            f"{o.get('currency', '')} {o.get('amount', '')}".rstrip()
+            for o in items
+        )
+        return ToolResult(
+            ok=True,
+            data={"action": "orders", "orders": items},
+            summary=f"Here's what I have on your account:\n{lines}",
+        )

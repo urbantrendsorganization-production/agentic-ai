@@ -59,8 +59,16 @@ class FakeBackend:
             "currency": "KES", "amount": "45000",
         }
         self.ticket_response = {"ticket_id": "tkt_1", "ref": "UT-1", "status": "open"}
+        self.orders_mine_response = {"orders": [
+            {"ref": "UT-ORD-9", "service": "landing_page", "status": "active",
+             "currency": "KES", "amount": "45000"},
+        ]}
+        self.customers_me_response = {
+            "id": 42, "email": "amina@example.com", "display": "Amina W.", "open_orders": 2,
+        }
         self.raise_on_quote = None
         self.raise_on_order = None
+        self.raise_on_orders_mine = None
 
     def get_json(self, path, *, session_cookie=None):
         self.calls.append(("GET", path, None, session_cookie, None))
@@ -70,6 +78,12 @@ class FakeBackend:
             return {"articles": _KB}
         if path == "/sitemap":
             return {"destinations": _SITEMAP}
+        if path == "/orders/mine":
+            if self.raise_on_orders_mine:
+                raise self.raise_on_orders_mine
+            return self.orders_mine_response
+        if path == "/customers/me":
+            return self.customers_me_response
         raise AssertionError(f"unexpected GET {path}")
 
     def post_json(self, path, body, *, session_cookie=None, idempotency_key=None):
@@ -250,6 +264,37 @@ def test_navigate_destination_sourced_from_backend(backend):
 
     assert result.action["action"] == "navigate"
     assert result.action["path"] == "/pricing"       # from the backend sitemap
+
+
+def test_list_orders_from_backend(backend):
+    session = Session.objects.create()
+    session._ut_session_cookie = "cookie-xyz"
+    result = handle_message(session, "show my orders")
+
+    assert result.action["action"] == "orders"
+    assert result.action["orders"][0]["ref"] == "UT-ORD-9"
+    assert "UT-ORD-9" in result.reply
+    mine = [c for c in backend.calls if c[1] == "/orders/mine"][0]
+    assert mine[3] == "cookie-xyz"   # forwarded X-UT-Session
+
+
+def test_list_orders_requires_sign_in(backend):
+    backend.raise_on_orders_mine = BackendError("not_authenticated", status=401)
+    session = Session.objects.create()
+    result = handle_message(session, "show my orders")
+
+    assert result.action["action"] == "navigate"
+    assert result.action["path"] == "/login"
+
+
+def test_check_login_enriched_from_customers_me(backend):
+    session = Session.objects.create(customer_ref="amina@example.com")
+    session._ut_session_cookie = "cookie-xyz"
+    result = handle_message(session, "am I signed in?")
+
+    assert result.action["signed_in"] is True
+    assert result.action["open_orders"] == 2
+    assert "Amina W." in result.reply
 
 
 def test_ticket_delegated_to_backend(backend):

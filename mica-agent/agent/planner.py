@@ -76,6 +76,9 @@ class StubPlanner:
                  "raise a ticket", "open a ticket", "file a complaint", "make a complaint")
     _LOGIN = ("log in", "login", "log me in", "sign in", "signin", "sign me in",
               "am i logged in", "am i signed in", "who am i", "my account")
+    _ORDER_STATUS = ("my orders", "show my orders", "order status", "status of my order",
+                     "status of order", "where is my order", "where's my order",
+                     "track order", "order history")
 
     def decide(self, *, user_text: str, tool_specs: list[dict], history: list[dict]) -> Decision:
         from . import catalog, kb, sitemap
@@ -95,6 +98,10 @@ class StubPlanner:
         # A login / account intent → check host-site auth status (never OTP).
         if any(phrase in lowered for phrase in self._LOGIN):
             return Decision(kind="tool", tool_name="check_login", tool_args={})
+
+        # An ask about an existing order → list the customer's orders + status.
+        if any(phrase in lowered for phrase in self._ORDER_STATUS):
+            return Decision(kind="tool", tool_name="list_orders", tool_args={})
 
         # An order intent naming a known service → start the order flow.
         service = catalog.match_text(lowered)

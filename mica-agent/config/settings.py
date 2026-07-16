@@ -28,6 +28,17 @@ SECRET_KEY = os.getenv("SECRET_KEY", "dev-insecure-change-me")
 DEBUG = _bool("DEBUG", "true")
 ALLOWED_HOSTS = _csv("ALLOWED_HOSTS", "localhost,127.0.0.1")
 
+# Behind Caddy, which terminates TLS and proxies to gunicorn: trust its
+# forwarded-proto header so Django treats requests as HTTPS (correct CSRF checks
+# and secure-cookie behaviour). Caddy sets X-Forwarded-Proto automatically.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+# Admin/API over HTTPS needs the real origin trusted for CSRF, e.g.
+#   https://agent.urbantrends.dev
+CSRF_TRUSTED_ORIGINS = _csv("CSRF_TRUSTED_ORIGINS")
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
@@ -41,6 +52,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Serves collected static files (admin, widget) straight from gunicorn.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -116,6 +129,14 @@ STATIC_URL = "static/"
 # The embeddable Mika widget (P5) is served from here in dev so `runserver` can
 # host the full demo end-to-end; production ships it as a static asset/CDN embed.
 STATICFILES_DIRS = [BASE_DIR / "widget"]
+# `collectstatic` gathers admin + widget assets here; WhiteNoise serves them.
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Surface the agent's own logs (incl. the console OTP backend in dev) on stderr.

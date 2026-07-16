@@ -11,3 +11,6 @@ redis>=5.0
 # Postgres driver for the docker/production stack; SQLite is used for local dev.
 psycopg[binary]>=3.2
 gunicorn>=21.0
+# Serves /static/ (admin, widget) directly from gunicorn in production, so no
+# separate static server is needed behind Caddy.
+whitenoise>=6.6

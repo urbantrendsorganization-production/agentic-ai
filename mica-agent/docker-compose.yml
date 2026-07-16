@@ -7,9 +7,10 @@
 # `build: .` is kept as a local fallback (`docker compose up --build`).
 #
 # web/worker join the urbantrends backend's docker network so they can reach it
-# by service name (URBANTRENDS_API_BASE=http://urbantrends-backend:8000). Find
-# the real network name with `docker network ls` (it's usually
-# <backend-compose-project>_default) and set URBANTRENDS_NETWORK in .env to it.
+# by its compose service alias (URBANTRENDS_API_BASE=http://backend:8000 — the
+# backend resolves as `backend`, not `urbantrends-backend`). Find the real
+# network name with `docker network ls` (here: urbantrends_default) and set
+# URBANTRENDS_NETWORK in .env to it.
 # If you point URBANTRENDS_API_BASE at https://urbantrends.dev instead, the
 # external network isn't needed — drop it from web/worker below.
 services:

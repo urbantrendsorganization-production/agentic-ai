@@ -5,6 +5,13 @@
 #   export MICA_TAG=<git-sha>            # tag CI published to GHCR
 #   docker compose pull && docker compose up -d
 # `build: .` is kept as a local fallback (`docker compose up --build`).
+#
+# web/worker join the urbantrends backend's docker network so they can reach it
+# by service name (URBANTRENDS_API_BASE=http://urbantrends-backend:8000). Find
+# the real network name with `docker network ls` (it's usually
+# <backend-compose-project>_default) and set URBANTRENDS_NETWORK in .env to it.
+# If you point URBANTRENDS_API_BASE at https://urbantrends.dev instead, the
+# external network isn't needed — drop it from web/worker below.
 services:
   db:
     image: postgres:16-alpine
@@ -14,10 +21,14 @@ services:
       POSTGRES_DB: mica
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
     restart: unless-stopped
 
   redis:
     image: redis:7-alpine
+    networks:
+      - internal
     restart: unless-stopped
 
   web:
@@ -36,6 +47,9 @@ services:
     # Container still listens on 8000; the host reverse proxy targets 8002.
     ports:
       - "127.0.0.1:8002:8000"
+    networks:
+      - internal
+      - urbantrends
     depends_on:
       - db
       - redis
@@ -50,10 +64,23 @@ services:
       DATABASE_URL: postgres://mica:${POSTGRES_PASSWORD:-mica}@db:5432/mica
       REDIS_URL: redis://redis:6379/0
       CELERY_TASK_ALWAYS_EAGER: "false"
+    networks:
+      - internal
+      - urbantrends
     depends_on:
       - db
       - redis
     restart: unless-stopped
+
+networks:
+  # Private network for mica's own services (web/worker ↔ db/redis).
+  internal:
+    driver: bridge
+  # The urbantrends backend's existing network, created by its own compose
+  # project. `external: true` means compose joins it rather than creating it.
+  urbantrends:
+    external: true
+    name: ${URBANTRENDS_NETWORK:-urbantrends_default}
 
 volumes:
   pgdata:

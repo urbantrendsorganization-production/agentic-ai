@@ -23,6 +23,7 @@ from django.db import transaction
 from django.db.models import Max
 
 from . import pricing
+from .backend import BackendError
 from .forms import FormError, validate_submission
 from .models import AgentEvent, Message, OrderDraft, Session, Ticket
 from .planner import get_planner
@@ -203,7 +204,14 @@ def submit_order_form(session: Session, raw_form: dict) -> TurnResult:
 
     # Validate before writing anything; invalid submissions never touch the log.
     params = validate_submission(draft.service, raw_form)
-    quote = pricing.quote(draft.service, params)
+    try:
+        quote = pricing.quote(draft.service, params, session=session)
+    except BackendError as exc:
+        # Backend rejected the params → re-collect just the flagged fields; any
+        # other failure (down, quote_unavailable) → a generic 400, never a 500.
+        if exc.code == "invalid_params" and exc.fields:
+            raise FormError(exc.fields) from exc
+        raise FormError({"quote": "couldn't price that just now — please try again"}) from exc
 
     events = _EventWriter(session)
     events.log(AgentEvent.STEP_RECEIVE, kind="form_submission", service=draft.service, raw=raw_form)

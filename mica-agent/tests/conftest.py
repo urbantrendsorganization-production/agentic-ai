@@ -10,6 +10,8 @@ from django.conf import settings
 
 def pytest_configure():
     settings.ANTHROPIC_API_KEY = ""
+    # Keep the suite hermetic: no backend calls unless a test opts in.
+    settings.URBANTRENDS_API_BASE = ""
     django.setup()
 
 

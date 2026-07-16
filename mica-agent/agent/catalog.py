@@ -39,8 +39,9 @@ class Service:
     aliases: tuple[str, ...]
     # JSONB-friendly dynamic form schema rendered by the widget (proposal §5).
     form_fields: tuple[dict, ...]
-    # Deterministic pricing rule: cleaned params → itemised breakdown.
-    price: Callable[[dict], list[LineItem]] = field(repr=False)
+    # Deterministic pricing rule: cleaned params → itemised breakdown. None for
+    # services sourced from the backend, where pricing is remote (POST /quote).
+    price: Callable[[dict], list[LineItem]] | None = field(default=None, repr=False)
 
     def form_schema(self) -> dict:
         return {
@@ -139,24 +140,93 @@ SERVICES: dict[str, Service] = {
 }
 
 
+# ── Provider seam (BACKEND_APIS.md) ──────────────────────────────────────────
+# The catalog is either the static SERVICES above (keyless dev/test default) or
+# the live urbantrends.dev backend when URBANTRENDS_API_BASE is set. Same shape
+# either way; call sites use the module-level get() / keys() / match_text().
+
+
+def _match(services: dict[str, Service], text: str) -> Service | None:
+    """Best-effort free text → service (stub planner only). Longest alias wins."""
+    lowered = text.lower()
+    best: tuple[int, Service] | None = None
+    for svc in services.values():
+        for alias in svc.aliases:
+            if alias in lowered and (best is None or len(alias) > best[0]):
+                best = (len(alias), svc)
+    return best[1] if best else None
+
+
+class _StaticCatalog:
+    def all(self) -> dict[str, Service]:
+        return SERVICES
+
+
+def _service_from_json(s: dict) -> Service:
+    """Build a Service from the backend's /services payload (pricing is remote)."""
+    form = s.get("form") or {}
+    return Service(
+        key=s["key"],
+        label=s.get("label", s["key"]),
+        description=s.get("description", ""),
+        aliases=tuple(s.get("aliases", ())),
+        form_fields=tuple(dict(f) for f in form.get("fields", [])),
+        price=None,  # money comes from POST /services/{key}/quote, not here
+    )
+
+
+class _HttpCatalog:
+    """Fetches the live catalog, cached briefly (services change rarely)."""
+
+    _TTL = 60.0  # seconds
+
+    def __init__(self, client) -> None:
+        self._client = client
+        self._cache: dict[str, Service] | None = None
+        self._at = 0.0
+
+    def all(self) -> dict[str, Service]:
+        import time
+
+        now = time.monotonic()
+        if self._cache is not None and now - self._at < self._TTL:
+            return self._cache
+        data = self._client.get_json("/services")
+        self._cache = {s["key"]: _service_from_json(s) for s in data.get("services", [])}
+        self._at = now
+        return self._cache
+
+
+_STATIC = _StaticCatalog()
+_http_cache: dict[str, _HttpCatalog] = {}
+
+
+def _provider():
+    from django.conf import settings
+
+    base = getattr(settings, "URBANTRENDS_API_BASE", "")
+    if not base:
+        return _STATIC
+    prov = _http_cache.get(base)
+    if prov is None:
+        from .backend import get_client
+
+        prov = _HttpCatalog(get_client())
+        _http_cache[base] = prov
+    return prov
+
+
 def get(service_key: str) -> Service:
-    svc = SERVICES.get(service_key)
+    svc = _provider().all().get(service_key)
     if svc is None:
         raise KeyError(f"unknown service: {service_key!r}")
     return svc
 
 
 def keys() -> list[str]:
-    return list(SERVICES)
+    return list(_provider().all())
 
 
 def match_text(text: str) -> Service | None:
     """Best-effort free text → service, for the keyless stub planner only."""
-    lowered = text.lower()
-    # Prefer the longest alias match so "web app" beats "app".
-    best: tuple[int, Service] | None = None
-    for svc in SERVICES.values():
-        for alias in svc.aliases:
-            if alias in lowered and (best is None or len(alias) > best[0]):
-                best = (len(alias), svc)
-    return best[1] if best else None
+    return _match(_provider().all(), text)

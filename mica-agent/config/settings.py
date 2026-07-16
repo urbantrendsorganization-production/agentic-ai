@@ -115,6 +115,18 @@ AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "4"))
 IDENTITY_BACKEND = os.getenv("IDENTITY_BACKEND", "stub")
 ALLAUTH_BASE_URL = os.getenv("ALLAUTH_BASE_URL", "").strip()
 
+# ── UrbanTrends backend (agent_api — see BACKEND_APIS.md) ─────────────────────
+# When URBANTRENDS_API_BASE is set, Mica sources catalog + pricing + orders from
+# the live urbantrends.dev backend instead of her in-repo stubs. Unset → the
+# static stubs (keyless dev/tests, no network). Service auth: the key is sent in
+# URBANTRENDS_API_KEY_HEADER (default "Authorization") as PREFIX + key (default
+# "Bearer "). For a custom scheme (e.g. X-Agent-Key), set header + empty prefix.
+URBANTRENDS_API_BASE = os.getenv("URBANTRENDS_API_BASE", "").strip().rstrip("/")
+URBANTRENDS_API_KEY = os.getenv("URBANTRENDS_API_KEY", "").strip()
+URBANTRENDS_API_KEY_HEADER = os.getenv("URBANTRENDS_API_KEY_HEADER", "Authorization").strip()
+URBANTRENDS_API_KEY_PREFIX = os.getenv("URBANTRENDS_API_KEY_PREFIX", "Bearer ")
+URBANTRENDS_API_TIMEOUT = float(os.getenv("URBANTRENDS_API_TIMEOUT", "4"))
+
 # ── Rate limits (proposal §8, P6) ─────────────────────────────────────────────
 # Fixed-window per-minute caps, enforced via the cache (LocMemCache in dev,
 # Redis in prod). Fail-open by design (see agent/ratelimit.py).

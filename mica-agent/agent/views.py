@@ -79,6 +79,9 @@ def post_message(request, session_id):
     incoming = MessageInSerializer(data=request.data)
     incoming.is_valid(raise_exception=True)
 
+    # Carry the visitor's host sessionid through the turn (transient, unsaved) so
+    # user-scoped backend calls (e.g. placing an order) can forward X-UT-Session.
+    session._ut_session_cookie = request.COOKIES.get("sessionid")
     result = handle_message(session, incoming.validated_data["text"])
     return Response(
         {
@@ -100,6 +103,7 @@ def order_form(request, session_id):
         return limited
 
     session = get_object_or_404(Session, id=session_id)
+    session._ut_session_cookie = request.COOKIES.get("sessionid")
     try:
         result = submit_order_form(session, request.data)
     except FormError as exc:

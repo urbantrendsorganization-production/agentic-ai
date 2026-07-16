@@ -17,7 +17,7 @@ from decimal import Decimal
 from typing import Any
 
 from .. import catalog
-from ..models import Order, OrderDraft
+from ..models import OrderDraft
 from .base import Tool, ToolResult, register
 
 
@@ -29,17 +29,29 @@ class StartOrderTool(Tool):
         "service and pops a short form to collect the details needed to quote it. "
         "Never quote a price yourself — the form submission produces the quote."
     )
+    # No enum baked in at import time — the service list may come from the
+    # backend (catalog.keys() can hit the network). spec() fills it per turn.
     input_schema = {
         "type": "object",
         "properties": {
             "service": {
                 "type": "string",
-                "enum": catalog.keys(),
                 "description": "Which service the customer wants to order.",
             }
         },
         "required": ["service"],
     }
+
+    def spec(self) -> dict[str, Any]:
+        """Inject the current catalog's service keys as the enum (per turn)."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "service": dict(self.input_schema["properties"]["service"], enum=catalog.keys()),
+            },
+            "required": ["service"],
+        }
+        return {"name": self.name, "description": self.description, "input_schema": schema}
 
     def validate(self, args: dict[str, Any]) -> dict[str, Any]:
         service = (args.get("service") or "").strip()
@@ -88,6 +100,8 @@ class CreateOrderTool(Tool):
     }
 
     def run(self, args: dict[str, Any], *, session) -> ToolResult:
+        from .. import orders
+
         draft = (
             session.order_drafts.filter(status=OrderDraft.STATUS_QUOTED)
             .order_by("-created_at")
@@ -105,26 +119,50 @@ class CreateOrderTool(Tool):
                 ),
             )
 
-        quote = draft.quote
-        order = Order.objects.create(
-            session=session,
-            customer_ref=session.customer_ref,
-            service=draft.service,
-            params=draft.params,
-            currency=quote["currency"],
-            amount=Decimal(quote["amount"]),
-            breakdown=quote["breakdown"],
-        )
+        # Place it: backend (system of record) or local, deterministic money.
+        outcome = orders.place_order(session, draft)
+        if not outcome.get("created"):
+            reason = outcome.get("reason", "no_quote")
+            # A user-scoped placement needs a signed-in visitor: deep-link to login.
+            if reason == "not_authenticated":
+                from .. import sitemap
+
+                dest = sitemap.resolve("signin")
+                return ToolResult(
+                    ok=True,
+                    data={"created": False, "reason": reason, "action": "navigate",
+                          "path": dest.path, "label": dest.label},
+                    summary=(
+                        "You'll need to sign in before I can place the order — I'll point "
+                        "you to the sign-in page, then say 'confirm' again and we're set."
+                    ),
+                )
+            return ToolResult(
+                ok=True,
+                data={"created": False, "reason": reason},
+                summary=(
+                    "I couldn't place that just now — the quote may have expired. "
+                    "Let's re-check the details and I'll price it again before we place it."
+                ),
+            )
+
         draft.status = OrderDraft.STATUS_PLACED
         draft.save(update_fields=["status"])
 
-        label = catalog.get(draft.service).label
+        ref = outcome.get("ref") or outcome.get("order_id", "")[:8]
+        amount = int(Decimal(outcome.get("amount") or "0"))
+        label = outcome.get("label", "order")
         return ToolResult(
             ok=True,
-            data={"created": True, "order_id": str(order.id), "status": order.status},
+            data={
+                "created": True,
+                "order_id": outcome.get("order_id", ""),
+                "ref": ref,
+                "status": outcome.get("status", "pending"),
+            },
             summary=(
-                f"Done — your {label.lower()} order is placed (ref {str(order.id)[:8]}) "
-                f"for {order.currency} {int(order.amount):,}, pending with the team. "
+                f"Done — your {label.lower()} order is placed (ref {ref}) "
+                f"for {outcome.get('currency', 'KES')} {amount:,}, pending with the team. "
                 "They'll be in touch to finalise payment."
             ),
         )

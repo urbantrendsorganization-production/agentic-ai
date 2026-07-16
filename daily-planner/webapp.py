@@ -9,8 +9,7 @@ from __future__ import annotations
 import logging
 import os
 
-from flask import (Flask, redirect, render_template, request, session,
-                   url_for)
+from flask import Flask, redirect, render_template, request, session, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash
 

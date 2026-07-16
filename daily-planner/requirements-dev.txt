@@ -1,0 +1,4 @@
+# Tooling for CI (and local checks). Runtime deps live in requirements.txt.
+-r requirements.txt
+ruff>=0.6
+pytest>=8.0

@@ -418,8 +418,15 @@
     }
     if (action && action.action === "navigate") {
       this._setState("pointing");
-      this._toast("TAKING YOU TO " + String(action.path || "").toUpperCase());
+      var dest = String(action.path || "");
+      this._toast("TAKING YOU TO " + dest.toUpperCase());
       if (res.reply) this._mika(res.reply);
+      // Actually take the visitor there. The widget is same-origin on the host
+      // site, so a relative path navigates the top-level page (e.g. /login).
+      // Brief delay so the toast + reply are readable before the page unloads.
+      if (dest) {
+        setTimeout(function () { window.location.assign(dest); }, 1600);
+      }
       return;
     }
 

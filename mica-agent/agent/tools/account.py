@@ -20,9 +20,11 @@ class CheckLoginTool(Tool):
     name = "check_login"
     description = (
         "Check whether the customer is already signed in on urbantrends.dev. Use "
-        "when they ask about their account or want to sign in, or before an action "
-        "that needs a signed-in user. Sign-in happens on the site with a passkey or "
-        "an email code — never collect credentials yourself."
+        "only when they directly ask about their account or want to sign in — do "
+        "NOT call it as a pre-check before ordering. Anyone can get a quote while "
+        "anonymous; placing the order handles sign-in on its own. Sign-in happens "
+        "on the site with a passkey or an email code — never collect credentials "
+        "yourself."
     )
     input_schema = {"type": "object", "properties": {}, "additionalProperties": False}
 

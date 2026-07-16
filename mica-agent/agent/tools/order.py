@@ -27,7 +27,9 @@ class StartOrderTool(Tool):
     description = (
         "Begin an order once the customer says what they want to buy. Picks the "
         "service and pops a short form to collect the details needed to quote it. "
-        "Never quote a price yourself — the form submission produces the quote."
+        "Call this straight away when someone wants to order — no sign-in needed "
+        "to get a quote; only placing the order asks them to sign in. Never quote "
+        "a price yourself — the form submission produces the quote."
     )
     # No enum baked in at import time — the service list may come from the
     # backend (catalog.keys() can hit the network). spec() fills it per turn.

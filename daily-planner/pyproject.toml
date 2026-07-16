@@ -12,3 +12,7 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+# Put the project root on sys.path so tests can import the top-level modules
+# (planner, sources, config, ...). Needed under the `pytest` console script,
+# which — unlike `python -m pytest` — does not add the CWD itself.
+pythonpath = ["."]

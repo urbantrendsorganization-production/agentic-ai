@@ -84,3 +84,19 @@ def test_login_intent_routes_to_check_login_not_otp():
     # Anonymous → check_login hands back a navigate-to-signin action.
     assert result.action["signed_in"] is False
     assert result.action["path"] == "/login"
+
+
+def test_whoami_reports_anonymous_when_no_session():
+    client = APIClient()
+    body = client.get("/api/whoami/").json()
+    assert body["cookie_present"] is False
+    assert body["authenticated"] is False
+    assert body["customer_ref"] == ""
+
+
+def test_whoami_reports_signed_in_visitor():
+    # Stub provider treats X-UT-Identity as the verified visitor (dev/test seam).
+    client = APIClient()
+    body = client.get("/api/whoami/", HTTP_X_UT_IDENTITY="edwin@urbantrends.dev").json()
+    assert body["authenticated"] is True
+    assert body["customer_ref"] == "edwin@urbantrends.dev"

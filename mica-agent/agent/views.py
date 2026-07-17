@@ -37,6 +37,37 @@ def health(request):
     return Response({"status": "ok"})
 
 
+@api_view(["GET"])
+def whoami(request):
+    """Auth diagnostic: does the visitor's login actually reach Mica?
+
+    Everything user-scoped (placing an order, "my orders") authenticates from the
+    forwarded `sessionid` cookie — if it's missing or anonymous the backend returns
+    401 not_authenticated and Mika keeps deep-linking to /login. Open this same-
+    origin (https://urbantrends.dev/agent/api/whoami) while signed in:
+
+      * cookie_present=false → the login didn't set a `sessionid` cookie on this
+        origin (allauth/proxy/cookie-domain issue — the browser never sends it).
+      * cookie_present=true but authenticated=false → the cookie reaches Mica but
+        allauth won't vouch for it (wrong ALLAUTH_BASE_URL, or it's an anon session).
+      * authenticated=true → Mika sees you signed in; the problem is elsewhere.
+
+    Never leaks the cookie value — only its presence/length and the resolved ref.
+    """
+    cookie = request.COOKIES.get("sessionid")
+    identity = get_identity_provider().resolve(
+        session_cookie=cookie, identity_hint=request.headers.get("X-UT-Identity")
+    )
+    return Response({
+        "cookie_present": bool(cookie),
+        "cookie_len": len(cookie) if cookie else 0,
+        "identity_backend": getattr(settings, "IDENTITY_BACKEND", "stub"),
+        "allauth_base_url": getattr(settings, "ALLAUTH_BASE_URL", ""),
+        "authenticated": identity is not None,
+        "customer_ref": identity.customer_ref if identity else "",
+    })
+
+
 def widget_demo(request):
     """Serve the Mika widget demo host page (dev harness for P5)."""
     demo = settings.BASE_DIR / "widget" / "demo.html"

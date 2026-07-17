@@ -16,6 +16,11 @@
  * Config via the script tag's data-* attributes:
  *   data-api-base   base URL of the agent API (default: same origin + /api)
  *   data-avatar     Mika character art URL (default: ./assets/agent1.jpg)
+ *   data-auth-url   same-origin allauth session endpoint used for the identity
+ *                   shortcut — greet a signed-in visitor by name without a server
+ *                   round-trip (default: /_allauth/browser/v1/auth/session). The
+ *                   HttpOnly sessionid cookie is sent automatically same-origin;
+ *                   the widget reads only meta.is_authenticated + data.user.
  *
  * Deterministic money stays server-side: the widget never computes a price. It
  * only displays the server-authored quote and posts a plain "confirm".
@@ -27,7 +32,18 @@
   var CFG = {
     apiBase: (script && script.dataset.apiBase) || (location.origin + "/api"),
     avatar: (script && script.dataset.avatar) || "./assets/agent1.jpg",
+    // Identity shortcut (MICA_INTEGRATION.md): same-origin allauth session probe.
+    // Relative path so the browser auto-attaches the HttpOnly sessionid cookie.
+    authUrl: (script && script.dataset.authUrl) || "/_allauth/browser/v1/auth/session",
   };
+
+  function friendlyName(user) {
+    if (!user) return "";
+    if (user.display) return String(user.display);
+    if (user.username) return String(user.username);
+    if (user.email) return String(user.email).split("@")[0];
+    return "";
+  }
 
   // ── Design tokens (extracted from the Mika design system) ──────────────────
   var T = {
@@ -310,16 +326,29 @@
       });
     } else if (!this._greeted) {
       this._greeted = true;
-      this._mika(
-        "Karibu! I'm Mika. I can get you a quote, set you up on an UrbanTrends " +
-          "service, point you around the site, or answer a quick question — what " +
-          "brings you in?"
-      );
-      this._chips([
-        { label: "ORDER A LANDING PAGE", text: "I'd like to order a landing page" },
-        { label: "HOW DOES PAYMENT WORK?", text: "What payment methods do you accept?" },
-        { label: "TALK TO A HUMAN", text: "I'd like to talk to a human", ghost: true },
-      ]);
+      var self4 = this;
+      // Identity shortcut: greet a signed-in visitor by name, else generically.
+      this._checkAuth().then(function (user) {
+        var name = friendlyName(user);
+        if (self4.authed && name) {
+          self4._mika(
+            "Karibu back, " + name + "! I can get you a quote, set you up on an " +
+              "UrbanTrends service, point you around the site, or answer a quick " +
+              "question — what can I do for you?"
+          );
+        } else {
+          self4._mika(
+            "Karibu! I'm Mika. I can get you a quote, set you up on an UrbanTrends " +
+              "service, point you around the site, or answer a quick question — what " +
+              "brings you in?"
+          );
+        }
+        self4._chips([
+          { label: "ORDER A LANDING PAGE", text: "I'd like to order a landing page" },
+          { label: "HOW DOES PAYMENT WORK?", text: "What payment methods do you accept?" },
+          { label: "TALK TO A HUMAN", text: "I'd like to talk to a human", ghost: true },
+        ]);
+      });
     }
     this._persist(); // remember the panel is open so we reopen after a page nav
     this.input.focus();
@@ -414,6 +443,31 @@
       self._persist();
       return s.id;
     });
+  };
+
+  // Identity shortcut (MICA_INTEGRATION.md): ask allauth directly, same-origin, so
+  // the HttpOnly sessionid cookie rides along and we can greet a signed-in visitor
+  // by name with no server round-trip. Read-only; anonymous (or any error) → null.
+  // Write / user-scoped actions still authenticate server-side via X-UT-Session.
+  Widget.prototype._checkAuth = function () {
+    var self = this;
+    if (this._authChecked) return Promise.resolve(this.user);
+    return fetch(CFG.authUrl, {
+      method: "GET",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (p) {
+        var authed = !!(p && p.meta && p.meta.is_authenticated);
+        self.authed = authed;
+        self.user = authed ? (p.data && p.data.user) || null : null;
+        self._authChecked = true;
+        return self.user;
+      })
+      .catch(function () {
+        self.authed = false; self.user = null; self._authChecked = true; return null;
+      });
   };
 
   Widget.prototype._onSend = function () {

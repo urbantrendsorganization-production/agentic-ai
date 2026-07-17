@@ -46,6 +46,65 @@ The backend resolves the user from that sessionid. **Never** send a customer id
 in the body for authorization — it is ignored for auth. If the header is missing
 or the session is anonymous, user-scoped calls return `401 not_authenticated`.
 
+### Where the sessionid comes from (the widget → Mica handoff)
+
+The visitor's `sessionid` is an **`HttpOnly` cookie**, so the browser widget
+**cannot** read it via `document.cookie` — and it does not need to. `HttpOnly`
+only blocks JavaScript *reads*; the browser still *sends* the cookie on requests.
+Mica reads it **server-side** from the incoming `Cookie` header.
+
+This works only because the widget talks to Mica **same-origin**. The widget is
+served on `urbantrends.dev` and its API base is the relative path `/agent/api`,
+which the site proxies (Caddy → Next.js `/agent/*` rewrite → the Mica service).
+Because the call is same-origin, the browser attaches the `urbantrends.dev`
+session cookie automatically (it is `SameSite=Lax; Path=/`, host-only), and both
+proxy hops forward the `Cookie` header unchanged.
+
+```
+Browser (urbantrends.dev)
+  │  widget fetch → /agent/api/*   (same-origin, credentials: "include")
+  │  ⇒ browser auto-attaches the HttpOnly sessionid cookie
+  ▼
+Caddy :443 → Next.js :3000 → [/agent/* rewrite] → Mica service
+  │  (both hops forward the Cookie header)
+  ▼
+Mica server  — parse `sessionid=…` from the request Cookie header
+  │  ⇒ set  X-UT-Session: <sessionid>  on user-scoped UT backend calls
+  ▼
+UT backend   — resolves the user from the sessionid → 200
+```
+
+**What Mica must do:**
+
+1. **Widget:** issue every `/agent/api/*` fetch with `credentials: "include"`
+   (or `"same-origin"`). Keep the API base a **relative, same-origin path**
+   (`/agent/api`) — a cross-origin absolute URL would make the request
+   cross-site and `SameSite=Lax` would then withhold the cookie.
+2. **Mica server:** read the `sessionid` value from the inbound `Cookie` header
+   and forward it verbatim as `X-UT-Session` on user-scoped UT calls (orders,
+   quotes-for-user, `customers/me`). No change is needed on the UT backend.
+
+**Identity shortcut:** for "is the visitor signed in / greet by name", the widget
+can call `GET /_allauth/browser/v1/auth/session` **directly from the browser**
+(same-origin, cookie auto-sent) and read `meta.is_authenticated` +
+`data.user.{id|email|display}` — no server round-trip and no sessionid handling.
+Only **write / user-scoped** calls need the `X-UT-Session` path, because those
+require the secret `Authorization: Bearer` key, which must never reach the
+browser.
+
+> **Security — the sessionid is a full-session credential.** Forwarding it lets
+> Mica (and anything that logs its request headers) act as the *entire* user
+> session, not just an agent scope. Therefore:
+> - `MICA_AGENT_URL` (the `/agent/*` proxy target) **must be first-party /
+>   self-hosted infra**, never a third-party SaaS host — otherwise the site
+>   forwards `urbantrends.dev` session cookies to an external party.
+> - Mica must **never log** the `Cookie` / `X-UT-Session` values and must reach
+>   the UT backend over TLS.
+> - If tighter scoping is wanted later, the UT backend can mint a short-lived,
+>   agent-scoped token bound to the user for Mica to forward instead of the raw
+>   sessionid. That is a future change; the contract above is satisfied by the
+>   cookie-forwarding flow.
+
 ### Conventions
 
 - **JSON** in and out, UTF-8.
